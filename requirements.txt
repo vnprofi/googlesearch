@@ -1,0 +1,5 @@
+PyQt5==5.15.10
+playwright==1.40.0
+beautifulsoup4==4.12.2
+pandas==2.1.4
+pyinstaller==6.3.0
