@@ -35,23 +35,22 @@ jobs:
 
       - name: Prepare resources (Windows only)
         if: matrix.target == 'win'
+        shell: cmd
         run: |
-          # Copy installed browsers next to source so PyInstaller can bundle them
+          REM Copy Playwright browsers so PyInstaller can bundle them
           if exist "%USERPROFILE%\AppData\Local\ms-playwright" (
             xcopy /E /I /Y "%USERPROFILE%\AppData\Local\ms-playwright" ms-playwright
           )
-          # ms-playwright остаётся только во внешнем каталоге, PyInstaller заберёт его внутрь exe
-        shell: cmd
 
       - name: Build with PyInstaller
-        run: |
-          if [ "${{ matrix.target }}" == "win" ]; then \
-            pyinstaller --noconfirm --clean --onefile --windowed --add-data "ms-playwright;ms-playwright" src/main.py --name GoogleSearchParser ; \
-            rmdir /S /Q ms-playwright ; \
-          else \
-            pyinstaller --noconfirm --clean --onefile --windowed src/main.py --name GoogleSearchParser ; \
-          fi
         shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "win" ]; then
+            pyinstaller --noconfirm --clean --onefile --windowed --add-data "ms-playwright;ms-playwright" src/main.py --name GoogleSearchParser
+            rm -rf ms-playwright
+          else
+            pyinstaller --noconfirm --clean --onefile --windowed src/main.py --name GoogleSearchParser
+          fi
 
       - name: macOS post-processing
         if: matrix.target == 'mac'
