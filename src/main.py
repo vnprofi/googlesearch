@@ -18,8 +18,12 @@ import traceback
 
 # Настройка пути к браузерам Playwright
 # Корректно работает как из исходников, так и из упакованного PyInstaller-exe
-if getattr(sys, 'frozen', False):  # запущено из собранного exe
-    base_dir = os.path.dirname(sys.executable)
+# Определяем базовый каталог: в собранном onefile PyInstaller данные распаковываются
+# во временную папку, путь к которой хранится в sys._MEIPASS. Используем его, чтобы
+# найти встроенную папку ms-playwright.
+if getattr(sys, 'frozen', False):
+    # В onefile-режиме PyInstaller создаёт временную директорию _MEI***
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
 else:
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
