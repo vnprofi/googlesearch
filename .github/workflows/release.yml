@@ -38,6 +38,10 @@ jobs:
           if exist "%USERPROFILE%\AppData\Local\ms-playwright" (
             xcopy /E /I /Y "%USERPROFILE%\AppData\Local\ms-playwright" ms-playwright
           )
+          # Also copy into dist for packaging alongside exe
+          if exist ms-playwright (
+            xcopy /E /I /Y ms-playwright dist\ms-playwright
+          )
         shell: cmd
 
       - name: Build with PyInstaller
@@ -60,7 +64,7 @@ jobs:
       - name: Package artifacts (Windows)
         if: matrix.target == 'win'
         run: |
-          Compress-Archive -Path dist/GoogleSearchParser.exe -DestinationPath GoogleSearchParser-win.zip
+          Compress-Archive -Path dist/GoogleSearchParser.exe,dist/ms-playwright -DestinationPath GoogleSearchParser-win.zip
         shell: pwsh
 
       - name: Package artifacts (macOS)
