@@ -202,7 +202,8 @@ class GoogleSearchWorker(QThread):
                     self.emit_progress(f"Обработка страницы {page_num + 1} из {self.max_pages}...")
 
                     try:
-                        page.goto(url, wait_until='networkidle', timeout=30000)
+                        # Используем более ранний триггер domcontentloaded, чтобы избежать таймаута networkidle
+                        page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
                         if 'captcha' in page.url.lower() or page.locator('text=Я не робот').count() > 0:
                             self.emit_progress(f"Обнаружена капча на странице {page_num + 1}, пропускаем...")
