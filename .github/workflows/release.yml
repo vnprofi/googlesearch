@@ -27,11 +27,27 @@ jobs:
           architecture: ${{ matrix.python_arch }}
 
       - name: Install deps
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Prepare resources (Windows only)
+        if: matrix.target == 'win'
+        run: |
+          # Copy installed browsers next to source so PyInstaller can bundle them
+          if exist "%USERPROFILE%\AppData\Local\ms-playwright" (
+            xcopy /E /I /Y "%USERPROFILE%\AppData\Local\ms-playwright" ms-playwright
+          )
+        shell: cmd
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --noconfirm --clean --onefile src/main.py --name GoogleSearchParser
+          if [ "${{ matrix.target }}" == "win" ]; then \
+            pyinstaller --noconfirm --clean --onefile --windowed --add-data "ms-playwright;ms-playwright" src/main.py --name GoogleSearchParser ; \
+          else \
+            pyinstaller --noconfirm --clean --onefile --windowed src/main.py --name GoogleSearchParser ; \
+          fi
+        shell: bash
 
       - name: macOS post-processing
         if: matrix.target == 'mac'

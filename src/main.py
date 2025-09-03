@@ -17,10 +17,18 @@ import re
 import traceback
 
 # Настройка пути к браузерам Playwright
+# Корректно работает как из исходников, так и из упакованного PyInstaller-exe
+if getattr(sys, 'frozen', False):  # запущено из собранного exe
+    base_dir = os.path.dirname(sys.executable)
+else:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
 if platform.system() == "Darwin":  # macOS
+    # Для macOS браузеры Playwright по умолчанию устанавливаются в кеш пользователя
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expanduser("~/Library/Caches/ms-playwright")
-else:  # Windows
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ms-playwright")
+else:  # Windows/Linux
+    # Ищем каталог ms-playwright рядом с исполняемым файлом
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "ms-playwright")
 
 
 class GoogleSearchWorker(QThread):
