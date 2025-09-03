@@ -1,0 +1,60 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            python_arch: 'x64'
+          - os: macos-latest
+            target: mac
+            python_arch: 'x64'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.python_arch }}
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --clean --onefile src/main.py --name GoogleSearchParser
+
+      - name: macOS post-processing
+        if: matrix.target == 'mac'
+        run: |
+          chmod +x dist/GoogleSearchParser
+          # Create .app bundle manually via platypus-like structure or skip if onefile CLI app
+          codesign --deep --force --sign - dist/GoogleSearchParser || true
+          xattr -cr dist/GoogleSearchParser || true
+
+      - name: Package artifacts (Windows)
+        if: matrix.target == 'win'
+        run: |
+          Compress-Archive -Path dist/GoogleSearchParser.exe -DestinationPath GoogleSearchParser-win.zip
+        shell: pwsh
+
+      - name: Package artifacts (macOS)
+        if: matrix.target == 'mac'
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/GoogleSearchParser GoogleSearchParser-mac.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoogleSearchParser-${{ matrix.target }}
+          path: |
+            *.zip
