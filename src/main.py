@@ -34,6 +34,16 @@ else:  # Windows/Linux
     # Ищем каталог ms-playwright рядом с исполняемым файлом
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "ms-playwright")
 
+# Если приложение упаковано в .app (PyInstaller windowed, not onefile) на macOS,
+# sys._MEIPASS указывает на Contents/MacOS. Папка ресурсов располагается
+# на два уровня выше (../Resources).
+
+# Дополнительный путь для macOS bundle (.app)
+if platform.system() == "Darwin" and getattr(sys, 'frozen', False):
+    resources_dir = os.path.abspath(os.path.join(sys._MEIPASS, '..', 'Resources', 'ms-playwright'))
+    if os.path.isdir(resources_dir):
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = resources_dir
+
 
 class GoogleSearchWorker(QThread):
     """Worker thread для выполнения поиска в фоновом режиме"""
