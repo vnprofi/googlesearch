@@ -15,6 +15,8 @@ import time
 import random
 import re
 import traceback
+from typing import Dict, Optional, List
+from urllib.parse import urlparse
 
 # Настройка пути к браузерам Playwright
 # Корректно работает как из исходников, так и из упакованного PyInstaller-exe
@@ -33,6 +35,127 @@ if platform.system() == "Darwin":  # macOS
 else:  # Windows/Linux
     # Ищем каталог ms-playwright рядом с исполняемым файлом
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "ms-playwright")
+
+
+WHOIS_REQUEST_DELAY = 1.0
+
+
+def extract_domain_from_url(url: str) -> Optional[str]:
+    """Извлекает чистый домен из строки URL/цитации."""
+    if not url:
+        return None
+
+    try:
+        # Обработка формата типа "example.com › contacts"
+        if '›' in url:
+            url = url.split('›')[0].strip()
+
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
+        parsed = urlparse(url)
+        domain = parsed.netloc
+
+        if domain.startswith('www.'):
+            domain = domain[4:]
+
+        if '.' not in domain or len(domain) < 4:
+            return None
+
+        return domain.lower()
+    except Exception:
+        return None
+
+
+def get_whois_data(domain: str) -> Dict[str, Optional[str]]:
+    """Получает данные WHOIS для домена через whois.ru с использованием браузера."""
+    whois_data = {
+        'domain': domain,
+        'citation_index': None,
+        'alexa_rating': None,
+        'registrar': None,
+        'registration_date': None,
+        'expiration_date': None,
+        'days_until_expiration': None,
+        'check_date': None,
+        'external_links': None,
+        'internal_links': None,
+        'total_anchors': None,
+        'outgoing_anchors': None,
+        'domain_links': None,
+        'page_title': None,
+        'page_description': None,
+        'whois_error': None
+    }
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+
+            whois_url = f'https://whois.ru/{domain}'
+            page.goto(whois_url, wait_until='domcontentloaded')
+
+            try:
+                page.wait_for_selector('.list-group-item', timeout=10000)
+            except:
+                try:
+                    button = page.query_selector('#whois_btn')
+                    if button:
+                        button.click()
+                        page.wait_for_selector('.list-group-item', timeout=10000)
+                except:
+                    pass
+
+            html_content = page.content()
+            browser.close()
+
+        soup = BeautifulSoup(html_content, 'html.parser')
+        list_groups = soup.find_all('ul', class_='list-group')
+
+        for ul in list_groups:
+            items = ul.find_all('li', class_='list-group-item')
+            for item in items:
+                text = item.get_text().strip()
+                strong = item.find('strong')
+                if not strong:
+                    continue
+                value = strong.get_text().strip()
+
+                if 'Индекс цитирования' in text:
+                    whois_data['citation_index'] = value
+                elif 'Рейтинг Alexa' in text:
+                    whois_data['alexa_rating'] = value
+                elif 'Регистратор домена' in text:
+                    whois_data['registrar'] = value
+                elif 'Дата регистрации' in text:
+                    whois_data['registration_date'] = value
+                elif 'Дата окончания' in text:
+                    whois_data['expiration_date'] = value
+                elif 'Закончится через' in text:
+                    whois_data['days_until_expiration'] = value
+                elif 'Дата проверки' in text:
+                    whois_data['check_date'] = value
+                elif 'Внешние ссылки домена' in text:
+                    whois_data['external_links'] = value
+                elif 'Внутренние ссылки' in text:
+                    whois_data['internal_links'] = value
+                elif 'Кол-во найденных анкоров' in text:
+                    whois_data['total_anchors'] = value
+                elif 'Кол-во исходящих анкоров' in text:
+                    whois_data['outgoing_anchors'] = value
+                elif 'Кол-во ссылок на домене' in text:
+                    whois_data['domain_links'] = value
+                elif 'Title страницы' in text:
+                    whois_data['page_title'] = value
+                elif 'Description страницы' in text:
+                    whois_data['page_description'] = value
+
+        time.sleep(WHOIS_REQUEST_DELAY)
+    except Exception as e:
+        whois_data['whois_error'] = f'Error: {str(e)}'
+
+    return whois_data
 
 
 class GoogleSearchWorker(QThread):
@@ -339,11 +462,133 @@ class GoogleSearchWorker(QThread):
             self.error_occurred.emit(f"Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
 
 
+class WhoisWorker(QThread):
+    """Фоновый поток для проверки доменов через WHOIS.ru"""
+    progress_updated = pyqtSignal(str)
+    whois_ready = pyqtSignal(object)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, results_df: pd.DataFrame):
+        super().__init__()
+        self.results_df = results_df
+        self.is_running = True
+
+    def stop(self):
+        self.is_running = False
+
+    def emit_progress(self, message: str):
+        if self.is_running:
+            self.progress_updated.emit(message)
+
+    def run(self):
+        try:
+            if self.results_df is None or self.results_df.empty:
+                self.emit_progress("[WHOIS] Нет данных для обработки")
+                self.whois_ready.emit(self.results_df if self.results_df is not None else pd.DataFrame())
+                return
+
+            # Сбор уникальных доменов
+            unique_domains = set()
+            for _, row in self.results_df.iterrows():
+                if not self.is_running:
+                    break
+                domain = extract_domain_from_url(row.get('cite')) if 'cite' in row else None
+                if not domain:
+                    domain = extract_domain_from_url(row.get('url'))
+                if domain:
+                    unique_domains.add(domain)
+
+            unique_domains = list(unique_domains)
+            self.emit_progress(f"\n[WHOIS] Найдено уникальных доменов для проверки: {len(unique_domains)}")
+
+            if not unique_domains:
+                self.emit_progress("[WHOIS] Нет доменов для проверки")
+                self.whois_ready.emit(self.results_df)
+                return
+
+            # Получение данных WHOIS
+            whois_results: Dict[str, Dict[str, Optional[str]]] = {}
+            for i, domain in enumerate(unique_domains, 1):
+                if not self.is_running:
+                    break
+                self.emit_progress(f"[WHOIS] Обрабатываю домен {i}/{len(unique_domains)}: {domain}")
+                data = get_whois_data(domain)
+                whois_results[domain] = data
+                if data.get('whois_error'):
+                    self.emit_progress(f"[WHOIS] Ошибка для {domain}: {data['whois_error']}")
+                else:
+                    self.emit_progress(f"[WHOIS] Успешно получены данные для {domain}")
+
+            # Обогащение исходного DataFrame
+            enriched_rows: List[Dict] = []
+            for _, row in self.results_df.iterrows():
+                item = row.to_dict()
+                domain = extract_domain_from_url(item.get('cite')) if item.get('cite') else None
+                if not domain:
+                    domain = extract_domain_from_url(item.get('url'))
+
+                if domain and domain in whois_results:
+                    info = whois_results[domain]
+                    item.update({
+                        'whois_domain': info.get('domain'),
+                        'whois_citation_index': info.get('citation_index'),
+                        'whois_alexa_rating': info.get('alexa_rating'),
+                        'whois_registrar': info.get('registrar'),
+                        'whois_registration_date': info.get('registration_date'),
+                        'whois_expiration_date': info.get('expiration_date'),
+                        'whois_days_until_expiration': info.get('days_until_expiration'),
+                        'whois_check_date': info.get('check_date'),
+                        'whois_external_links': info.get('external_links'),
+                        'whois_internal_links': info.get('internal_links'),
+                        'whois_total_anchors': info.get('total_anchors'),
+                        'whois_outgoing_anchors': info.get('outgoing_anchors'),
+                        'whois_domain_links': info.get('domain_links'),
+                        'whois_page_title': info.get('page_title'),
+                        'whois_page_description': info.get('page_description'),
+                        'whois_error': info.get('whois_error')
+                    })
+                else:
+                    item.update({
+                        'whois_domain': None,
+                        'whois_citation_index': None,
+                        'whois_alexa_rating': None,
+                        'whois_registrar': None,
+                        'whois_registration_date': None,
+                        'whois_expiration_date': None,
+                        'whois_days_until_expiration': None,
+                        'whois_check_date': None,
+                        'whois_external_links': None,
+                        'whois_internal_links': None,
+                        'whois_total_anchors': None,
+                        'whois_outgoing_anchors': None,
+                        'whois_domain_links': None,
+                        'whois_page_title': None,
+                        'whois_page_description': None,
+                        'whois_error': 'No domain found'
+                    })
+                enriched_rows.append(item)
+
+            df_enriched = pd.DataFrame(enriched_rows)
+
+            # Статистика
+            successful = len([1 for _, r in df_enriched.iterrows() if r.get('whois_domain') and not r.get('whois_error')])
+            failed = len([1 for _, r in df_enriched.iterrows() if r.get('whois_error') and r.get('whois_error') != 'No domain found'])
+            no_domain = len([1 for _, r in df_enriched.iterrows() if r.get('whois_error') == 'No domain found'])
+            self.emit_progress(f"[WHOIS] Успешно обработано доменов: {successful}")
+            self.emit_progress(f"[WHOIS] Ошибок при обработке: {failed}")
+            self.emit_progress(f"[WHOIS] Результатов без доменов: {no_domain}")
+
+            self.whois_ready.emit(df_enriched)
+        except Exception as e:
+            self.error_occurred.emit(f"[WHOIS] Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
+
 class GoogleSearchGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.worker = None
         self.results_df = None
+        self.whois_worker = None
+        self.whois_checkbox = None
         self.init_ui()
 
     def init_ui(self):
@@ -389,6 +634,11 @@ class GoogleSearchGUI(QMainWindow):
         # Сбор контактов
         self.collect_contacts_checkbox = QCheckBox("Собирать email контакты")
         search_layout.addWidget(self.collect_contacts_checkbox, 3, 0)
+
+        # Предлагать WHOIS проверку
+        self.whois_checkbox = QCheckBox("Предлагать проверку доменов через WHOIS.ru после сбора")
+        self.whois_checkbox.setChecked(True)
+        search_layout.addWidget(self.whois_checkbox, 4, 0, 1, 2)
 
         search_group.setLayout(search_layout)
         main_layout.addWidget(search_group)
@@ -496,6 +746,9 @@ class GoogleSearchGUI(QMainWindow):
             self.output_text.append("Сбор контактов: включен")
         self.output_text.append("-" * 50)
 
+        # Сброс WHOIS
+        self.whois_worker = None
+
         # Настройка UI для поиска
         self.search_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -518,6 +771,11 @@ class GoogleSearchGUI(QMainWindow):
             self.worker.quit()
             self.worker.wait()
             self.output_text.append("Поиск остановлен пользователем")
+        if self.whois_worker:
+            self.whois_worker.stop()
+            self.whois_worker.quit()
+            self.whois_worker.wait()
+            self.output_text.append("WHOIS-проверка остановлена пользователем")
 
     def update_progress(self, message):
         """Обновление прогресса"""
@@ -549,6 +807,53 @@ class GoogleSearchGUI(QMainWindow):
         else:
             self.output_text.append("Результаты не найдены")
 
+        # Предложение WHOIS проверки как в Yandex-скрипте
+        if self.results_df is not None and not self.results_df.empty and self.whois_checkbox.isChecked():
+            self.output_text.append("\n" + "=" * 60)
+            self.output_text.append("ОСНОВНОЙ ПАРСИНГ ЗАВЕРШЕН")
+            self.output_text.append("=" * 60)
+            reply = QMessageBox.question(
+                self,
+                "WHOIS",
+                "Хотите проверить домены через WHOIS.ru?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.output_text.append("\n[WHOIS] Начинаю проверку доменов...")
+                self.start_whois_check()
+            else:
+                self.output_text.append("[WHOIS] Проверка доменов пропущена.")
+
+    def start_whois_check(self):
+        if self.results_df is None or self.results_df.empty:
+            QMessageBox.warning(self, "WHOIS", "Нет данных для WHOIS-проверки")
+            return
+        # Настройка UI
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.search_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.save_button.setEnabled(False)
+
+        # Запуск WhoisWorker
+        self.whois_worker = WhoisWorker(self.results_df)
+        self.whois_worker.progress_updated.connect(self.update_progress)
+        self.whois_worker.whois_ready.connect(self.on_whois_ready)
+        self.whois_worker.error_occurred.connect(self.on_error)
+        self.whois_worker.finished.connect(self.on_whois_finished)
+        self.whois_worker.start()
+
+    def on_whois_ready(self, df_enriched: pd.DataFrame):
+        # Обновляем текущий DataFrame на обогащённый
+        self.results_df = df_enriched
+        self.output_text.append("\n[WHOIS] Обогащенные данные получены. Можете сохранить результаты.")
+        self.save_button.setEnabled(True)
+
+    def on_whois_finished(self):
+        self.progress_bar.setVisible(False)
+        self.search_button.setEnabled(True)
+
     def on_error(self, error_message):
         """Обработка ошибок"""
         self.output_text.append(f"ОШИБКА: {error_message}")
@@ -559,6 +864,8 @@ class GoogleSearchGUI(QMainWindow):
         self.search_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.progress_bar.setVisible(False)
+
+        # Если WHOIS уже запущен — UI останется в неопределённом прогрессе, не меняем
 
     def save_results(self):
         """Сохранение результатов"""
