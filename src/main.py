@@ -867,7 +867,7 @@ class GoogleSearchGUI(QMainWindow):
             index=False
         )
 
-        # Шаблон HTML с подключением DataTables и кнопкой экспорта
+        # Шаблон HTML с подключением DataTables и кнопкой экспорта (без кнопки печати)
         html_template = f"""
 <!DOCTYPE html>
 <html lang="ru">
@@ -958,11 +958,7 @@ class GoogleSearchGUI(QMainWindow):
                         "className": 'dt-button',
                         "filename": 'report_{self.query_input.text().replace(' ', '_')}'
                     }},
-                    {{
-                        "extend": 'print',
-                        "text": 'Печать',
-                        "className": 'dt-button'
-                    }},
+                    // Кнопка печати удалена по требованию
                     {{
                         "extend": 'colvis',
                         "text": 'Показать/Скрыть столбцы',
@@ -995,28 +991,25 @@ class GoogleSearchGUI(QMainWindow):
 </html>
         """
 
-        # Сохраняем HTML-файл
+        # Сохраняем HTML-файл во временную директорию
         query = self.query_input.text().strip()
-        default_filename = f"interactive_report_{query.replace(' ', '_')}.html"
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить HTML-отчет", default_filename,
-            "HTML files (*.html);;All files (*.*)"
-        )
+        temp_filename = f"interactive_report_{query.replace(' ', '_')}.html"
+        temp_path = os.path.join(os.getcwd(), temp_filename)  # Сохраняем в текущей директории
 
-        if filename:
-            try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(html_template)
-                self.output_text.append(f"Интерактивный HTML-отчет сохранен: {filename}")
-                QMessageBox.information(self, "Успех", f"Отчет успешно сохранен!\nВы можете открыть его в браузере.\n{filename}")
+        try:
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                f.write(html_template)
+            self.output_text.append(f"Интерактивный HTML-отчет сгенерирован: {temp_path}")
 
-                # Опционально: автоматически открыть файл в браузере
-                # QDesktopServices.openUrl(QUrl.fromLocalFile(filename))
+            # Автоматически открываем файл в браузере
+            QDesktopServices.openUrl(QUrl.fromLocalFile(temp_path))
 
-            except Exception as e:
-                error_msg = f"Ошибка при генерации HTML-отчета: {str(e)}"
-                self.output_text.append(error_msg)
-                QMessageBox.critical(self, "Ошибка", error_msg)
+            QMessageBox.information(self, "Успех", f"Отчет открыт в вашем браузере!")
+
+        except Exception as e:
+            error_msg = f"Ошибка при генерации или открытии HTML-отчета: {str(e)}"
+            self.output_text.append(error_msg)
+            QMessageBox.critical(self, "Ошибка", error_msg)
 
 def main():
     app = QApplication(sys.argv)
