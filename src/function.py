@@ -16,6 +16,13 @@ class ManualGoogleSession:
     def start_search(self, query: str) -> None:
         os.makedirs(self.profile_dir, exist_ok=True)
 
+        # Если объект контекста остался, но браузер уже закрыт вручную, сбрасываем состояние.
+        if self.context is not None:
+            try:
+                _ = self.context.pages
+            except Exception:
+                self.stop()
+
         if self.context is None:
             self.playwright = sync_playwright().start()
             self.context = self.playwright.chromium.launch_persistent_context(
@@ -31,17 +38,38 @@ class ManualGoogleSession:
                 no_viewport=True,
             )
 
-        if not self.context.pages:
-            self.page = self.context.new_page()
-        else:
-            self.page = self.context.pages[0]
+        try:
+            if not self.context.pages:
+                self.page = self.context.new_page()
+            else:
+                self.page = self.context.pages[0]
 
-        search_url = f"https://www.google.com/search?q={quote_plus(query)}&hl=ru&start=0&filter=0"
-        self.page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
-        self.page.bring_to_front()
+            search_url = f"https://www.google.com/search?q={quote_plus(query)}&hl=ru&start=0&filter=0"
+            self.page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
+            self.page.bring_to_front()
+        except Exception:
+            # Контекст мог быть закрыт извне между проверкой и переходом.
+            self.stop()
+            self.playwright = sync_playwright().start()
+            self.context = self.playwright.chromium.launch_persistent_context(
+                user_data_dir=self.profile_dir,
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--start-maximized",
+                ],
+                locale="ru-RU",
+                no_viewport=True,
+            )
+            self.page = self.context.new_page()
+            search_url = f"https://www.google.com/search?q={quote_plus(query)}&hl=ru&start=0&filter=0"
+            self.page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
+            self.page.bring_to_front()
 
     def export_storage_state(self) -> str:
-        if self.context is None:
+        if not self.is_active():
             raise RuntimeError("Manual browser session is not started")
 
         state_path = os.path.join(self.profile_dir, "storage_state.json")
@@ -49,7 +77,14 @@ class ManualGoogleSession:
         return state_path
 
     def is_active(self) -> bool:
-        return self.context is not None
+        if self.context is None:
+            return False
+        try:
+            _ = self.context.pages
+            return True
+        except Exception:
+            self.stop()
+            return False
 
     def stop(self) -> None:
         if self.context is not None:

@@ -280,11 +280,12 @@ class GoogleSearchWorker(QThread):
                         '--no-first-run',
                         '--no-default-browser-check',
                         '--start-maximized',
+                        '--window-size=1920,1080',
                     ],
                 )
                 context_kwargs = {
                     'locale': 'ru-RU',
-                    'viewport': {'width': 1920, 'height': 1080},
+                    'viewport': None,
                 }
                 if self.storage_state_path and os.path.exists(self.storage_state_path):
                     context_kwargs['storage_state'] = self.storage_state_path
@@ -764,11 +765,13 @@ class GoogleSearchGUI(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Введите поисковый запрос!")
             return
         if not self.manual_session.is_active():
+            self.parse_button.setEnabled(False)
             QMessageBox.warning(self, "Поиск", "Сначала нажмите 'Начать поиск' и решите капчу в браузере.")
             return
         try:
             storage_state_path = self.manual_session.export_storage_state()
         except Exception as e:
+            self.parse_button.setEnabled(False)
             QMessageBox.critical(self, "Ошибка", f"Не удалось получить сессию браузера: {e}")
             return
 
