@@ -25,9 +25,10 @@ class ManualGoogleSession:
                     "--disable-blink-features=AutomationControlled",
                     "--no-first-run",
                     "--no-default-browser-check",
+                    "--start-maximized",
                 ],
                 locale="ru-RU",
-                viewport={"width": 1366, "height": 900},
+                no_viewport=True,
             )
 
         if not self.context.pages:
@@ -35,7 +36,7 @@ class ManualGoogleSession:
         else:
             self.page = self.context.pages[0]
 
-        search_url = f"https://www.google.com/search?q={quote_plus(query)}&hl=ru&num=100"
+        search_url = f"https://www.google.com/search?q={quote_plus(query)}&hl=ru&start=0&filter=0"
         self.page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
         self.page.bring_to_front()
 
