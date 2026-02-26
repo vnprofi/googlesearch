@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import os
 import subprocess
 import platform
@@ -21,19 +21,19 @@ from typing import Dict, Optional, List
 from urllib.parse import urlparse
 from function import ManualGoogleSession
 
-# РќР°СЃС‚СЂРѕР№РєР° РїСѓС‚Рё Рє Р±СЂР°СѓР·РµСЂР°Рј Playwright
-# РљРѕСЂСЂРµРєС‚РЅРѕ СЂР°Р±РѕС‚Р°РµС‚ РєР°Рє РёР· РёСЃС…РѕРґРЅРёРєРѕРІ, С‚Р°Рє Рё РёР· СѓРїР°РєРѕРІР°РЅРЅРѕРіРѕ PyInstaller-exe
-# РћРїСЂРµРґРµР»СЏРµРј Р±Р°Р·РѕРІС‹Р№ РєР°С‚Р°Р»РѕРі: РІ СЃРѕР±СЂР°РЅРЅРѕРј onefile PyInstaller РґР°РЅРЅС‹Рµ СЂР°СЃРїР°РєРѕРІС‹РІР°СЋС‚СЃСЏ
+# Настройка пути к браузерам Playwright
+# Корректно работает как из исходников, так и из упакованного PyInstaller-exe
+# Определяем базовый каталог: в собранном onefile PyInstaller данные распаковываются
 # РІРѕ РІСЂРµРјРµРЅРЅСѓСЋ РїР°РїРєСѓ, РїСѓС‚СЊ Рє РєРѕС‚РѕСЂРѕР№ С…СЂР°РЅРёС‚СЃСЏ РІ sys._MEIPASS. РСЃРїРѕР»СЊР·СѓРµРј РµРіРѕ, С‡С‚РѕР±С‹
-# РЅР°Р№С‚Рё РІСЃС‚СЂРѕРµРЅРЅСѓСЋ РїР°РїРєСѓ ms-playwright.
+# найти встроенную папку ms-playwright.
 if getattr(sys, 'frozen', False):
-    # Р’ onefile-СЂРµР¶РёРјРµ PyInstaller СЃРѕР·РґР°С‘С‚ РІСЂРµРјРµРЅРЅСѓСЋ РґРёСЂРµРєС‚РѕСЂРёСЋ _MEI***
+    # В onefile-режиме PyInstaller создаёт временную директорию _MEI***
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
 else:
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
 if platform.system() == "Darwin":  # macOS
-    # Р”Р»СЏ macOS Р±СЂР°СѓР·РµСЂС‹ Playwright РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СѓСЃС‚Р°РЅР°РІР»РёРІР°СЋС‚СЃСЏ РІ РєРµС€ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+    # Для macOS браузеры Playwright по умолчанию устанавливаются в кеш пользователя
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expanduser("~/Library/Caches/ms-playwright")
 else:  # Windows/Linux
     # РС‰РµРј РєР°С‚Р°Р»РѕРі ms-playwright СЂСЏРґРѕРј СЃ РёСЃРїРѕР»РЅСЏРµРјС‹Рј С„Р°Р№Р»РѕРј
@@ -46,9 +46,9 @@ def extract_domain_from_url(url: str) -> Optional[str]:
     if not url:
         return None
     try:
-        # РћР±СЂР°Р±РѕС‚РєР° С„РѕСЂРјР°С‚Р° С‚РёРїР° "example.com вЂє contacts"
-        if 'вЂє' in url:
-            url = url.split('вЂє')[0].strip()
+        # Обработка формата типа "example.com › contacts"
+        if '›' in url:
+            url = url.split('›')[0].strip()
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
         parsed = urlparse(url)
@@ -62,7 +62,7 @@ def extract_domain_from_url(url: str) -> Optional[str]:
         return None
 
 def get_whois_data(domain: str) -> Dict[str, Optional[str]]:
-    """РџРѕР»СѓС‡Р°РµС‚ РґР°РЅРЅС‹Рµ WHOIS РґР»СЏ РґРѕРјРµРЅР° С‡РµСЂРµР· whois.ru СЃ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРµРј Р±СЂР°СѓР·РµСЂР°."""
+    """Получает данные WHOIS для домена через whois.ru с использованием браузера."""
     whois_data = {
         'domain': domain,
         'citation_index': None,
@@ -112,31 +112,31 @@ def get_whois_data(domain: str) -> Dict[str, Optional[str]]:
                 value = strong.get_text().strip()
                 if 'РРЅРґРµРєСЃ С†РёС‚РёСЂРѕРІР°РЅРёСЏ' in text:
                     whois_data['citation_index'] = value
-                elif 'Р РµР№С‚РёРЅРі Alexa' in text:
+                elif 'Рейтинг Alexa' in text:
                     whois_data['alexa_rating'] = value
-                elif 'Р РµРіРёСЃС‚СЂР°С‚РѕСЂ РґРѕРјРµРЅР°' in text:
+                elif 'Регистратор домена' in text:
                     whois_data['registrar'] = value
-                elif 'Р”Р°С‚Р° СЂРµРіРёСЃС‚СЂР°С†РёРё' in text:
+                elif 'Дата регистрации' in text:
                     whois_data['registration_date'] = value
-                elif 'Р”Р°С‚Р° РѕРєРѕРЅС‡Р°РЅРёСЏ' in text:
+                elif 'Дата окончания' in text:
                     whois_data['expiration_date'] = value
-                elif 'Р—Р°РєРѕРЅС‡РёС‚СЃСЏ С‡РµСЂРµР·' in text:
+                elif 'Закончится через' in text:
                     whois_data['days_until_expiration'] = value
-                elif 'Р”Р°С‚Р° РїСЂРѕРІРµСЂРєРё' in text:
+                elif 'Дата проверки' in text:
                     whois_data['check_date'] = value
-                elif 'Р’РЅРµС€РЅРёРµ СЃСЃС‹Р»РєРё РґРѕРјРµРЅР°' in text:
+                elif 'Внешние ссылки домена' in text:
                     whois_data['external_links'] = value
-                elif 'Р’РЅСѓС‚СЂРµРЅРЅРёРµ СЃСЃС‹Р»РєРё' in text:
+                elif 'Внутренние ссылки' in text:
                     whois_data['internal_links'] = value
-                elif 'РљРѕР»-РІРѕ РЅР°Р№РґРµРЅРЅС‹С… Р°РЅРєРѕСЂРѕРІ' in text:
+                elif 'Кол-во найденных анкоров' in text:
                     whois_data['total_anchors'] = value
-                elif 'РљРѕР»-РІРѕ РёСЃС…РѕРґСЏС‰РёС… Р°РЅРєРѕСЂРѕРІ' in text:
+                elif 'Кол-во исходящих анкоров' in text:
                     whois_data['outgoing_anchors'] = value
-                elif 'РљРѕР»-РІРѕ СЃСЃС‹Р»РѕРє РЅР° РґРѕРјРµРЅРµ' in text:
+                elif 'Кол-во ссылок на домене' in text:
                     whois_data['domain_links'] = value
-                elif 'Title СЃС‚СЂР°РЅРёС†С‹' in text:
+                elif 'Title страницы' in text:
                     whois_data['page_title'] = value
-                elif 'Description СЃС‚СЂР°РЅРёС†С‹' in text:
+                elif 'Description страницы' in text:
                     whois_data['page_description'] = value
 
         time.sleep(WHOIS_REQUEST_DELAY)
@@ -145,7 +145,7 @@ def get_whois_data(domain: str) -> Dict[str, Optional[str]]:
     return whois_data
 
 class GoogleSearchWorker(QThread):
-    """Worker thread РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РїРѕРёСЃРєР° РІ С„РѕРЅРѕРІРѕРј СЂРµР¶РёРјРµ"""
+    """Worker thread для выполнения поиска в фоновом режиме"""
     progress_updated = pyqtSignal(str)
     results_ready = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
@@ -182,7 +182,7 @@ class GoogleSearchWorker(QThread):
                 'captcha' in url or
                 '/sorry/' in url or
                 'sorry/index' in url or
-                page.locator('text=РЇ РЅРµ СЂРѕР±РѕС‚').count() > 0 or
+                page.locator('text=Я не робот').count() > 0 or
                 page.locator('form[action*=\"sorry\"]').count() > 0
             )
         except Exception:
@@ -190,8 +190,8 @@ class GoogleSearchWorker(QThread):
 
     def wait_for_captcha_resolution(self, page_number):
         self.emit_progress(
-            f"РћР±РЅР°СЂСѓР¶РµРЅР° РєР°РїС‡Р° РЅР° СЃС‚СЂР°РЅРёС†Рµ {page_number}. Р РµС€РёС‚Рµ РєР°РїС‡Сѓ РІ РѕС‚РєСЂС‹С‚РѕРј РѕРєРЅРµ Р±СЂР°СѓР·РµСЂР° "
-            f"Рё РЅР°Р¶РјРёС‚Рµ РєРЅРѕРїРєСѓ 'РџСЂРѕРґРѕР»Р¶РёС‚СЊ РїРѕСЃР»Рµ РєР°РїС‡Рё'."
+            f"Обнаружена капча на странице {page_number}. Решите капчу в открытом окне браузера "
+            f"и нажмите кнопку 'Продолжить после капчи'."
         )
         self.captcha_resume_event.clear()
         self.captcha_detected.emit(page_number)
@@ -206,7 +206,7 @@ class GoogleSearchWorker(QThread):
         # РР·РІР»РµРєР°РµРј email СЃ СѓР»СѓС‡С€РµРЅРЅС‹Рј РїР°С‚С‚РµСЂРЅРѕРј
         email_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b'
         emails = re.findall(email_pattern, page_content, re.IGNORECASE)
-        # РЎРѕР±РёСЂР°РµРј РїРѕР»РЅС‹Рµ email Р°РґСЂРµСЃР°
+        # Собираем полные email адреса
         full_emails = []
         for match in re.finditer(email_pattern, page_content, re.IGNORECASE):
             full_emails.append(match.group(0))
@@ -214,27 +214,27 @@ class GoogleSearchWorker(QThread):
         return contacts
 
     def fetch_page_contacts(self, url, page):
-        """РџРѕР»СѓС‡Р°РµС‚ РєРѕРЅС‚Р°РєС‚С‹ СЃ РѕРґРЅРѕР№ СЃС‚СЂР°РЅРёС†С‹"""
+        """Получает контакты с одной страницы"""
         try:
-            # РџРµСЂРµС…РѕРґРёРј РЅР° СЃС‚СЂР°РЅРёС†Сѓ
+            # Переходим на страницу
             page.goto(url, wait_until='domcontentloaded', timeout=20000)
-            # Р–РґРµРј РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕР№ Р·Р°РіСЂСѓР·РєРё
+            # Ждем дополнительной загрузки
             time.sleep(random.uniform(2, 4))
-            # РџС‹С‚Р°РµРјСЃСЏ РґРѕР¶РґР°С‚СЊСЃСЏ Р·Р°РіСЂСѓР·РєРё РґРёРЅР°РјРёС‡РµСЃРєРѕРіРѕ РєРѕРЅС‚РµРЅС‚Р°
+            # Пытаемся дождаться загрузки динамического контента
             try:
                 page.wait_for_load_state('networkidle', timeout=10000)
             except:
                 pass
-            # РЎРєСЂРѕР»Р»РёРј СЃС‚СЂР°РЅРёС†Сѓ С‡С‚РѕР±С‹ Р·Р°РіСЂСѓР·РёС‚СЊ Р»РµРЅРёРІС‹Р№ РєРѕРЅС‚РµРЅС‚
+            # Скроллим страницу чтобы загрузить ленивый контент
             try:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(1)
                 page.evaluate("window.scrollTo(0, 0)")
             except:
                 pass
-            # РџРѕР»СѓС‡Р°РµРј РїРѕР»РЅС‹Р№ HTML РїРѕСЃР»Рµ Р·Р°РіСЂСѓР·РєРё
+            # Получаем полный HTML после загрузки
             full_content = page.content()
-            # Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕ РёС‰РµРј РІ СЃРїРµС†РёС„РёС‡РЅС‹С… СЌР»РµРјРµРЅС‚Р°С…
+            # Дополнительно ищем в специфичных элементах
             additional_content = ""
             # РС‰РµРј РІ footer, header, РєРѕРЅС‚Р°РєС‚РЅС‹С… СЃРµРєС†РёСЏС…
             selectors = [
@@ -254,13 +254,13 @@ class GoogleSearchWorker(QThread):
                             continue
                 except:
                     continue
-            # РћР±СЉРµРґРёРЅСЏРµРј РІРµСЃСЊ РєРѕРЅС‚РµРЅС‚
+            # Объединяем весь контент
             combined_content = full_content + " " + additional_content
             # РР·РІР»РµРєР°РµРј РєРѕРЅС‚Р°РєС‚С‹
             contacts = self.extract_contacts(combined_content, page)
             return contacts
         except Exception as e:
-            self.emit_progress(f"РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ {url}: {e}")
+            self.emit_progress(f"Ошибка при обработке {url}: {e}")
             return {'emails': []}
 
     def run(self):
@@ -434,7 +434,7 @@ class GoogleSearchWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
 class WhoisWorker(QThread):
-    """Р¤РѕРЅРѕРІС‹Р№ РїРѕС‚РѕРє РґР»СЏ РїСЂРѕРІРµСЂРєРё РґРѕРјРµРЅРѕРІ С‡РµСЂРµР· WHOIS.ru"""
+    """Фоновый поток для проверки доменов через WHOIS.ru"""
     progress_updated = pyqtSignal(str)
     whois_ready = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
@@ -454,11 +454,11 @@ class WhoisWorker(QThread):
     def run(self):
         try:
             if self.results_df is None or self.results_df.empty:
-                self.emit_progress("[WHOIS] РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё")
+                self.emit_progress("[WHOIS] Нет данных для обработки")
                 self.whois_ready.emit(self.results_df if self.results_df is not None else pd.DataFrame())
                 return
 
-            # РЎР±РѕСЂ СѓРЅРёРєР°Р»СЊРЅС‹С… РґРѕРјРµРЅРѕРІ
+            # Сбор уникальных доменов
             unique_domains = set()
             for _, row in self.results_df.iterrows():
                 if not self.is_running:
@@ -470,27 +470,27 @@ class WhoisWorker(QThread):
                     unique_domains.add(domain)
 
             unique_domains = list(unique_domains)
-            self.emit_progress(f"\n[WHOIS] РќР°Р№РґРµРЅРѕ СѓРЅРёРєР°Р»СЊРЅС‹С… РґРѕРјРµРЅРѕРІ РґР»СЏ РїСЂРѕРІРµСЂРєРё: {len(unique_domains)}")
+            self.emit_progress(f"\n[WHOIS] Найдено уникальных доменов для проверки: {len(unique_domains)}")
 
             if not unique_domains:
-                self.emit_progress("[WHOIS] РќРµС‚ РґРѕРјРµРЅРѕРІ РґР»СЏ РїСЂРѕРІРµСЂРєРё")
+                self.emit_progress("[WHOIS] Нет доменов для проверки")
                 self.whois_ready.emit(self.results_df)
                 return
 
-            # РџРѕР»СѓС‡РµРЅРёРµ РґР°РЅРЅС‹С… WHOIS
+            # Получение данных WHOIS
             whois_results: Dict[str, Dict[str, Optional[str]]] = {}
             for i, domain in enumerate(unique_domains, 1):
                 if not self.is_running:
                     break
-                self.emit_progress(f"[WHOIS] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ РґРѕРјРµРЅ {i}/{len(unique_domains)}: {domain}")
+                self.emit_progress(f"[WHOIS] Обрабатываю домен {i}/{len(unique_domains)}: {domain}")
                 data = get_whois_data(domain)
                 whois_results[domain] = data
                 if data.get('whois_error'):
-                    self.emit_progress(f"[WHOIS] РћС€РёР±РєР° РґР»СЏ {domain}: {data['whois_error']}")
+                    self.emit_progress(f"[WHOIS] Ошибка для {domain}: {data['whois_error']}")
                 else:
-                    self.emit_progress(f"[WHOIS] РЈСЃРїРµС€РЅРѕ РїРѕР»СѓС‡РµРЅС‹ РґР°РЅРЅС‹Рµ РґР»СЏ {domain}")
+                    self.emit_progress(f"[WHOIS] Успешно получены данные для {domain}")
 
-            # РћР±РѕРіР°С‰РµРЅРёРµ РёСЃС…РѕРґРЅРѕРіРѕ DataFrame
+            # Обогащение исходного DataFrame
             enriched_rows: List[Dict] = []
             for _, row in self.results_df.iterrows():
                 item = row.to_dict()
@@ -541,19 +541,19 @@ class WhoisWorker(QThread):
 
             df_enriched = pd.DataFrame(enriched_rows)
 
-            # РЎС‚Р°С‚РёСЃС‚РёРєР°
+            # Статистика
             successful = len([1 for _, r in df_enriched.iterrows() if r.get('whois_domain') and not r.get('whois_error')])
             failed = len([1 for _, r in df_enriched.iterrows() if r.get('whois_error') and r.get('whois_error') != 'No domain found'])
             no_domain = len([1 for _, r in df_enriched.iterrows() if r.get('whois_error') == 'No domain found'])
 
-            self.emit_progress(f"[WHOIS] РЈСЃРїРµС€РЅРѕ РѕР±СЂР°Р±РѕС‚Р°РЅРѕ РґРѕРјРµРЅРѕРІ: {successful}")
-            self.emit_progress(f"[WHOIS] РћС€РёР±РѕРє РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ: {failed}")
-            self.emit_progress(f"[WHOIS] Р РµР·СѓР»СЊС‚Р°С‚РѕРІ Р±РµР· РґРѕРјРµРЅРѕРІ: {no_domain}")
+            self.emit_progress(f"[WHOIS] Успешно обработано доменов: {successful}")
+            self.emit_progress(f"[WHOIS] Ошибок при обработке: {failed}")
+            self.emit_progress(f"[WHOIS] Результатов без доменов: {no_domain}")
 
             self.whois_ready.emit(df_enriched)
 
         except Exception as e:
-            self.error_occurred.emit(f"[WHOIS] РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР°: {str(e)}\n{traceback.format_exc()}")
+            self.error_occurred.emit(f"[WHOIS] Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
 
 class GoogleSearchGUI(QMainWindow):
     def __init__(self):
@@ -562,7 +562,7 @@ class GoogleSearchGUI(QMainWindow):
         self.results_df = None
         self.whois_worker = None
         self.whois_checkbox = None
-        self.report_button = None  # РљРЅРѕРїРєР° РґР»СЏ РіРµРЅРµСЂР°С†РёРё РѕС‚С‡РµС‚Р°
+        self.report_button = None  # Кнопка для генерации отчета
         self.parse_button = None
         self.resume_button = None
         self.all_pages_checkbox = None
@@ -576,26 +576,26 @@ class GoogleSearchGUI(QMainWindow):
         self.setWindowTitle("Google Search Tool v1.1")
         self.setGeometry(100, 100, 800, 650)
 
-        # РћСЃРЅРѕРІРЅРѕР№ РІРёРґР¶РµС‚
+        # Основной виджет
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
 
-        # РћСЃРЅРѕРІРЅРѕР№ layout
+        # Основной layout
         main_layout = QVBoxLayout()
         main_widget.setLayout(main_layout)
 
-        # Р“СЂСѓРїРїР° РЅР°СЃС‚СЂРѕРµРє РїРѕРёСЃРєР°
-        search_group = QGroupBox("РќР°СЃС‚СЂРѕР№РєРё РїРѕРёСЃРєР°")
+        # Группа настроек поиска
+        search_group = QGroupBox("Настройки поиска")
         search_layout = QGridLayout()
 
-        # РџРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ
-        search_layout.addWidget(QLabel("РџРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ:"), 0, 0)
+        # Поисковый запрос
+        search_layout.addWidget(QLabel("Поисковый запрос:"), 0, 0)
         self.query_input = QLineEdit()
-        self.query_input.setPlaceholderText("Р’РІРµРґРёС‚Рµ РїРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ...")
+        self.query_input.setPlaceholderText("Введите поисковый запрос...")
         search_layout.addWidget(self.query_input, 0, 1, 1, 2)
 
-        # РЎС‚СЂР°РЅРёС†С‹ (РѕС‚/РґРѕ) РёР»Рё РІСЃРµ
-        search_layout.addWidget(QLabel("РЎС‚СЂР°РЅРёС†С‹ (РѕС‚/РґРѕ):"), 1, 0)
+        # Страницы (от/до) или все
+        search_layout.addWidget(QLabel("Страницы (от/до):"), 1, 0)
         self.page_from_spinbox = QSpinBox()
         self.page_from_spinbox.setRange(1, 500)
         self.page_from_spinbox.setValue(1)
@@ -606,11 +606,11 @@ class GoogleSearchGUI(QMainWindow):
         self.page_to_spinbox.setValue(3)
         search_layout.addWidget(self.page_to_spinbox, 1, 2)
 
-        self.all_pages_checkbox = QCheckBox("РџР°СЂСЃРёС‚СЊ РІСЃРµ СЃС‚СЂР°РЅРёС†С‹ (РїРѕРєР° РµСЃС‚СЊ 'РЎР»РµРґСѓСЋС‰Р°СЏ')")
+        self.all_pages_checkbox = QCheckBox("Парсить все страницы (пока есть 'Следующая')")
         search_layout.addWidget(self.all_pages_checkbox, 2, 0, 1, 3)
 
-        # РћРіСЂР°РЅРёС‡РµРЅРёРµ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ
-        self.limit_results_checkbox = QCheckBox("РћРіСЂР°РЅРёС‡РёС‚СЊ СЂРµР·СѓР»СЊС‚Р°С‚С‹ РЅР° СЃС‚СЂР°РЅРёС†Рµ")
+        # Ограничение результатов
+        self.limit_results_checkbox = QCheckBox("Ограничить результаты на странице")
         search_layout.addWidget(self.limit_results_checkbox, 3, 0)
         self.results_per_page_spinbox = QSpinBox()
         self.results_per_page_spinbox.setRange(10, 100)
@@ -618,25 +618,25 @@ class GoogleSearchGUI(QMainWindow):
         self.results_per_page_spinbox.setEnabled(False)
         search_layout.addWidget(self.results_per_page_spinbox, 3, 1)
 
-        # РЎР±РѕСЂ РєРѕРЅС‚Р°РєС‚РѕРІ
-        self.collect_contacts_checkbox = QCheckBox("РЎРѕР±РёСЂР°С‚СЊ email РєРѕРЅС‚Р°РєС‚С‹")
+        # Сбор контактов
+        self.collect_contacts_checkbox = QCheckBox("Собирать email контакты")
         search_layout.addWidget(self.collect_contacts_checkbox, 4, 0)
 
-        # РџСЂРµРґР»Р°РіР°С‚СЊ WHOIS РїСЂРѕРІРµСЂРєСѓ
-        self.whois_checkbox = QCheckBox("РџСЂРµРґР»Р°РіР°С‚СЊ РїСЂРѕРІРµСЂРєСѓ РґРѕРјРµРЅРѕРІ С‡РµСЂРµР· WHOIS.ru РїРѕСЃР»Рµ СЃР±РѕСЂР°")
+        # Предлагать WHOIS проверку
+        self.whois_checkbox = QCheckBox("Предлагать проверку доменов через WHOIS.ru после сбора")
         self.whois_checkbox.setChecked(True)
         search_layout.addWidget(self.whois_checkbox, 5, 0, 1, 2)
 
         search_group.setLayout(search_layout)
         main_layout.addWidget(search_group)
 
-        # Р“СЂСѓРїРїР° Readme
-        info_group = QGroupBox("РљР»СЋС‡РµРІС‹Рµ РѕСЃРѕР±РµРЅРЅРѕСЃС‚Рё Рё СЂРµРєРѕРјРµРЅРґР°С†РёРё")
+        # Группа Readme
+        info_group = QGroupBox("Ключевые особенности и рекомендации")
         info_layout = QVBoxLayout()
         readme_text = ("<ul style='margin-left: -20px;'>"
-                       "<li><b>РџСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊ СЃР±РѕСЂР°:</b> РџСЂРёР»РѕР¶РµРЅРёРµ РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚ РґРѕ 100 СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЃ РєР°Р¶РґРѕР№ СЃС‚СЂР°РЅРёС†С‹ РїРѕРёСЃРєРѕРІРѕР№ РІС‹РґР°С‡Рё Google.</li>"
-                       "<li><b>РћРіСЂР°РЅРёС‡РµРЅРёСЏ Google:</b> РџРѕРёСЃРєРѕРІР°СЏ СЃРёСЃС‚РµРјР° Google, РєР°Рє РїСЂР°РІРёР»Рѕ, РѕРіСЂР°РЅРёС‡РёРІР°РµС‚ РѕР±С‰РµРµ РєРѕР»РёС‡РµСЃС‚РІРѕ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ РїСЂРёРјРµСЂРЅРѕ РґРѕ 300 РїРѕР·РёС†РёР№ (СЌРєРІРёРІР°Р»РµРЅС‚РЅРѕ 3 СЃС‚СЂР°РЅРёС†Р°Рј).</li>"
-                       "<li><b>РЎР±РѕСЂ РєРѕРЅС‚Р°РєС‚РЅС‹С… РґР°РЅРЅС‹С…:</b> РђРєС‚РёРІР°С†РёСЏ С„СѓРЅРєС†РёРё СЃР±РѕСЂР° email-Р°РґСЂРµСЃРѕРІ Р·РЅР°С‡РёС‚РµР»СЊРЅРѕ СѓРІРµР»РёС‡РёРІР°РµС‚ РѕР±С‰РµРµ РІСЂРµРјСЏ РІС‹РїРѕР»РЅРµРЅРёСЏ Р·Р°РґР°С‡Рё, С‚Р°Рє РєР°Рє С‚СЂРµР±СѓРµС‚ РїРѕСЃР»РµРґРѕРІР°С‚РµР»СЊРЅРѕРіРѕ РїРѕСЃРµС‰РµРЅРёСЏ Рё Р°РЅР°Р»РёР·Р° РєР°Р¶РґРѕРіРѕ РЅР°Р№РґРµРЅРЅРѕРіРѕ РІРµР±-СЃР°Р№С‚Р°.</li>"
+                       "<li><b>Производительность сбора:</b> Приложение обрабатывает до 100 результатов с каждой страницы поисковой выдачи Google.</li>"
+                       "<li><b>Ограничения Google:</b> Поисковая система Google, как правило, ограничивает общее количество результатов примерно до 300 позиций (эквивалентно 3 страницам).</li>"
+                       "<li><b>Сбор контактных данных:</b> Активация функции сбора email-адресов значительно увеличивает общее время выполнения задачи, так как требует последовательного посещения и анализа каждого найденного веб-сайта.</li>"
                        "</ul>")
         info_label = QLabel(readme_text)
         info_label.setWordWrap(True)
@@ -644,53 +644,53 @@ class GoogleSearchGUI(QMainWindow):
         info_group.setLayout(info_layout)
         main_layout.addWidget(info_group)
 
-        # РљРЅРѕРїРєРё СѓРїСЂР°РІР»РµРЅРёСЏ
+        # Кнопки управления
         buttons_layout = QHBoxLayout()
-        self.search_button = QPushButton("РќР°С‡Р°С‚СЊ РїРѕРёСЃРє")
+        self.search_button = QPushButton("Начать поиск")
         self.search_button.clicked.connect(self.start_manual_search)
         buttons_layout.addWidget(self.search_button)
 
-        self.parse_button = QPushButton("РќР°С‡Р°С‚СЊ РїР°СЂСЃРёРЅРі")
+        self.parse_button = QPushButton("Начать парсинг")
         self.parse_button.clicked.connect(self.start_search)
         self.parse_button.setEnabled(False)
         buttons_layout.addWidget(self.parse_button)
 
-        self.resume_button = QPushButton("РџСЂРѕРґРѕР»Р¶РёС‚СЊ РїРѕСЃР»Рµ РєР°РїС‡Рё")
+        self.resume_button = QPushButton("Продолжить после капчи")
         self.resume_button.clicked.connect(self.resume_after_captcha)
         self.resume_button.setEnabled(False)
         buttons_layout.addWidget(self.resume_button)
 
-        self.stop_button = QPushButton("РћСЃС‚Р°РЅРѕРІРёС‚СЊ")
+        self.stop_button = QPushButton("Остановить")
         self.stop_button.clicked.connect(self.stop_search)
         self.stop_button.setEnabled(False)
         buttons_layout.addWidget(self.stop_button)
 
-        self.save_button = QPushButton("РЎРѕС…СЂР°РЅРёС‚СЊ CSV/Excel")
+        self.save_button = QPushButton("Сохранить CSV/Excel")
         self.save_button.clicked.connect(self.save_results)
         self.save_button.setEnabled(False)
         buttons_layout.addWidget(self.save_button)
 
-        # РљРЅРѕРїРєР° РґР»СЏ РіРµРЅРµСЂР°С†РёРё HTML-РѕС‚С‡РµС‚Р°
-        self.report_button = QPushButton("РЎРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ HTML-РѕС‚С‡РµС‚")
+        # Кнопка для генерации HTML-отчета
+        self.report_button = QPushButton("Сгенерировать HTML-отчет")
         self.report_button.clicked.connect(self.generate_html_report)
         self.report_button.setEnabled(False)
         buttons_layout.addWidget(self.report_button)
 
         main_layout.addLayout(buttons_layout)
 
-        # РџСЂРѕРіСЂРµСЃСЃ Р±Р°СЂ
+        # Прогресс бар
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
 
-        # РўРµРєСЃС‚РѕРІРѕРµ РїРѕР»Рµ РґР»СЏ РІС‹РІРѕРґР°
+        # Текстовое поле для вывода
         self.output_text = QTextEdit()
         self.output_text.setReadOnly(True)
         main_layout.addWidget(self.output_text)
 
-        # РљРЅРѕРїРєР° РґР»СЏ СЃРІСЏР·Рё
+        # Кнопка для связи
         feedback_layout = QHBoxLayout()
-        self.feedback_button = QPushButton("РџСЂРµРґР»РѕР¶РёС‚СЊ СѓР»СѓС‡С€РµРЅРёРµ")
+        self.feedback_button = QPushButton("Предложить улучшение")
         self.feedback_button.setCursor(Qt.PointingHandCursor)
         self.feedback_button.setStyleSheet("""
             QPushButton {
@@ -713,7 +713,7 @@ class GoogleSearchGUI(QMainWindow):
         feedback_layout.addWidget(self.feedback_button)
         main_layout.addLayout(feedback_layout)
 
-        # РџРѕРґРєР»СЋС‡РµРЅРёРµ СЃРёРіРЅР°Р»РѕРІ
+        # Подключение сигналов
         self.limit_results_checkbox.toggled.connect(
             self.results_per_page_spinbox.setEnabled
         )
@@ -721,40 +721,40 @@ class GoogleSearchGUI(QMainWindow):
         self.all_pages_checkbox.toggled.connect(self.page_to_spinbox.setDisabled)
 
     def open_feedback_link(self):
-        """РћС‚РєСЂС‹РІР°РµС‚ СЃСЃС‹Р»РєСѓ РґР»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРІСЏР·Рё РІ Telegram"""
+        """Открывает ссылку для обратной связи в Telegram"""
         QDesktopServices.openUrl(QUrl("https://t.me/Userspoi"))
 
     def start_manual_search(self):
-        """РћС‚РєСЂС‹РІР°РµС‚ РІРёРґРёРјС‹Р№ Р±СЂР°СѓР·РµСЂ РґР»СЏ СЂСѓС‡РЅРѕР№ РєР°РїС‡Рё Рё РїРѕРґРіРѕС‚РѕРІРєРё СЃРµСЃСЃРёРё."""
+        """Открывает видимый браузер для ручной капчи и подготовки сессии."""
         query = self.query_input.text().strip()
         if not query:
-            QMessageBox.warning(self, "РћС€РёР±РєР°", "Р’РІРµРґРёС‚Рµ РїРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ!")
+            QMessageBox.warning(self, "Ошибка", "Введите поисковый запрос!")
             return
 
         try:
             self.manual_session.start_search(query)
             self.parse_button.setEnabled(True)
             self.resume_button.setEnabled(False)
-            self.output_text.append("РћС‚РєСЂС‹С‚ Р±СЂР°СѓР·РµСЂ СЃ РїРѕРёСЃРєРѕРІС‹Рј Р·Р°РїСЂРѕСЃРѕРј.")
-            self.output_text.append("Р•СЃР»Рё РµСЃС‚СЊ РєР°РїС‡Р° - СЂРµС€РёС‚Рµ РµРµ РІ Р±СЂР°СѓР·РµСЂРµ.")
-            self.output_text.append("РџРѕСЃР»Рµ РїРѕСЏРІР»РµРЅРёСЏ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ РЅР°Р¶РјРёС‚Рµ 'РќР°С‡Р°С‚СЊ РїР°СЂСЃРёРЅРі'.")
+            self.output_text.append("Открыт браузер с поисковым запросом.")
+            self.output_text.append("Если есть капча - решите ее в браузере.")
+            self.output_text.append("После появления результатов нажмите 'Начать парсинг'.")
         except Exception as e:
-            QMessageBox.critical(self, "РћС€РёР±РєР°", f"РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ Р±СЂР°СѓР·РµСЂ: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть браузер: {e}")
 
     def resume_after_captcha(self):
         if self.worker:
             self.worker.resume_after_captcha()
             self.resume_button.setEnabled(False)
-            self.output_text.append("РџСЂРѕРґРѕР»Р¶РµРЅРёРµ РїРѕСЃР»Рµ РєР°РїС‡Рё Р·Р°РїСЂРѕС€РµРЅРѕ.")
+            self.output_text.append("Продолжение после капчи запрошено.")
 
     def start_search(self):
-        """Р—Р°РїСѓСЃРє РїРѕРёСЃРєР°"""
+        """Запуск поиска"""
         query = self.query_input.text().strip()
         if not query:
-            QMessageBox.warning(self, "РћС€РёР±РєР°", "Р’РІРµРґРёС‚Рµ РїРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ!")
+            QMessageBox.warning(self, "Ошибка", "Введите поисковый запрос!")
             return
         if not self.manual_session.is_active():
-            QMessageBox.warning(self, "РџРѕРёСЃРє", "РЎРЅР°С‡Р°Р»Р° РЅР°Р¶РјРёС‚Рµ 'РќР°С‡Р°С‚СЊ РїРѕРёСЃРє' Рё СЂРµС€РёС‚Рµ РєР°РїС‡Сѓ РІ Р±СЂР°СѓР·РµСЂРµ.")
+            QMessageBox.warning(self, "Поиск", "Сначала нажмите 'Начать поиск' и решите капчу в браузере.")
             return
         profile_dir = self.manual_session.profile_dir
         self.manual_session.stop()
@@ -763,7 +763,7 @@ class GoogleSearchGUI(QMainWindow):
         page_to = self.page_to_spinbox.value()
         parse_all_pages = self.all_pages_checkbox.isChecked()
         if not parse_all_pages and page_to < page_from:
-            QMessageBox.warning(self, "РћС€РёР±РєР°", "РџРѕР»Рµ 'РґРѕ' РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ РїРѕР»СЏ 'РѕС‚'.")
+            QMessageBox.warning(self, "Ошибка", "Поле 'до' не может быть меньше поля 'от'.")
             return
 
         collect_contacts = self.collect_contacts_checkbox.isChecked()
@@ -771,33 +771,33 @@ class GoogleSearchGUI(QMainWindow):
         if self.limit_results_checkbox.isChecked():
             results_per_page = self.results_per_page_spinbox.value()
 
-        # РћС‡РёСЃС‚РєР° РІС‹РІРѕРґР°
+        # Очистка вывода
         self.output_text.clear()
-        self.output_text.append(f"РќР°С‡РёРЅР°РµРј РїРѕРёСЃРє РїРѕ Р·Р°РїСЂРѕСЃСѓ: '{query}'")
+        self.output_text.append(f"Начинаем поиск по запросу: '{query}'")
         if parse_all_pages:
-            self.output_text.append("РЎС‚СЂР°РЅРёС†С‹: РІСЃРµ РґРѕСЃС‚СѓРїРЅС‹Рµ")
+            self.output_text.append("Страницы: все доступные")
         else:
-            self.output_text.append(f"Р”РёР°РїР°Р·РѕРЅ СЃС‚СЂР°РЅРёС†: {page_from}-{page_to}")
+            self.output_text.append(f"Диапазон страниц: {page_from}-{page_to}")
         if results_per_page:
-            self.output_text.append(f"Р РµР·СѓР»СЊС‚Р°С‚РѕРІ РЅР° СЃС‚СЂР°РЅРёС†Рµ: {results_per_page}")
+            self.output_text.append(f"Результатов на странице: {results_per_page}")
         if collect_contacts:
-            self.output_text.append("РЎР±РѕСЂ РєРѕРЅС‚Р°РєС‚РѕРІ: РІРєР»СЋС‡РµРЅ")
+            self.output_text.append("Сбор контактов: включен")
         self.output_text.append("-" * 50)
 
-        # РЎР±СЂРѕСЃ WHOIS
+        # Сброс WHOIS
         self.whois_worker = None
 
-        # РќР°СЃС‚СЂРѕР№РєР° UI РґР»СЏ РїРѕРёСЃРєР°
+        # Настройка UI для поиска
         self.search_button.setEnabled(False)
         self.parse_button.setEnabled(False)
         self.resume_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.save_button.setEnabled(False)
-        self.report_button.setEnabled(False)  # РћС‚РєР»СЋС‡Р°РµРј РєРЅРѕРїРєСѓ РѕС‚С‡РµС‚Р°
+        self.report_button.setEnabled(False)  # Отключаем кнопку отчета
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # РќРµРѕРїСЂРµРґРµР»РµРЅРЅС‹Р№ РїСЂРѕРіСЂРµСЃСЃ
+        self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
 
-        # РЎРѕР·РґР°РЅРёРµ Рё Р·Р°РїСѓСЃРє worker'Р°
+        # Создание и запуск worker'а
         self.worker = GoogleSearchWorker(
             query,
             page_from,
@@ -815,54 +815,54 @@ class GoogleSearchGUI(QMainWindow):
         self.worker.start()
 
     def stop_search(self):
-        """РћСЃС‚Р°РЅРѕРІРєР° РїРѕРёСЃРєР°"""
+        """Остановка поиска"""
         self.resume_button.setEnabled(False)
         if self.worker:
             self.worker.stop()
             self.worker.quit()
             self.worker.wait()
-            self.output_text.append("РџРѕРёСЃРє РѕСЃС‚Р°РЅРѕРІР»РµРЅ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј")
+            self.output_text.append("Поиск остановлен пользователем")
 
         if self.whois_worker:
             self.whois_worker.stop()
             self.whois_worker.quit()
             self.whois_worker.wait()
-            self.output_text.append("WHOIS-РїСЂРѕРІРµСЂРєР° РѕСЃС‚Р°РЅРѕРІР»РµРЅР° РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј")
+            self.output_text.append("WHOIS-проверка остановлена пользователем")
 
     def update_progress(self, message):
-        """РћР±РЅРѕРІР»РµРЅРёРµ РїСЂРѕРіСЂРµСЃСЃР°"""
+        """Обновление прогресса"""
         self.output_text.append(message)
         self.output_text.moveCursor(self.output_text.textCursor().End)
 
     def on_captcha_detected(self, page_number):
         self.resume_button.setEnabled(True)
         self.output_text.append(
-            f"РљР°РїС‡Р° РЅР° СЃС‚СЂР°РЅРёС†Рµ {page_number}: "
-            f"СЂРµС€РёС‚Рµ РµРµ РІ Р±СЂР°СѓР·РµСЂРµ Рё РЅР°Р¶РјРёС‚Рµ 'РџСЂРѕРґРѕР»Р¶РёС‚СЊ РїРѕСЃР»Рµ РєР°РїС‡Рё'."
+            f"Капча на странице {page_number}: "
+            f"решите ее в браузере и нажмите 'Продолжить после капчи'."
         )
 
     def on_results_ready(self, df):
-        """РћР±СЂР°Р±РѕС‚РєР° РіРѕС‚РѕРІС‹С… СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ"""
+        """Обработка готовых результатов"""
         self.results_df = df
         if not df.empty:
-            self.output_text.append(f"\nРџРѕРёСЃРє Р·Р°РІРµСЂС€РµРЅ! РќР°Р№РґРµРЅРѕ {len(df)} СѓРЅРёРєР°Р»СЊРЅС‹С… СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ")
+            self.output_text.append(f"\nПоиск завершен! Найдено {len(df)} уникальных результатов")
             if self.collect_contacts_checkbox.isChecked():
                 total_emails = sum(1 for _, row in df.iterrows() if row.get('emails'))
-                self.output_text.append(f"РќР°Р№РґРµРЅРѕ СЃР°Р№С‚РѕРІ СЃ email: {total_emails}")
-                # РџРѕРєР°Р·С‹РІР°РµРј РїСЂРёРјРµСЂС‹ РЅР°Р№РґРµРЅРЅС‹С… РєРѕРЅС‚Р°РєС‚РѕРІ
+                self.output_text.append(f"Найдено сайтов с email: {total_emails}")
+                # Показываем примеры найденных контактов
                 if total_emails > 0:
-                    self.output_text.append("\nРџСЂРёРјРµСЂС‹ РЅР°Р№РґРµРЅРЅС‹С… email:")
+                    self.output_text.append("\nПримеры найденных email:")
                     count = 0
                     for _, row in df.iterrows():
                         if row.get('emails') and count < 3:
                             self.output_text.append(f"  {row['url']}: {row['emails'][:100]}...")
                             count += 1
             self.save_button.setEnabled(True)
-            self.report_button.setEnabled(True)  # РђРєС‚РёРІРёСЂСѓРµРј РєРЅРѕРїРєСѓ РѕС‚С‡РµС‚Р°
+            self.report_button.setEnabled(True)  # Активируем кнопку отчета
         else:
-            self.output_text.append("Р РµР·СѓР»СЊС‚Р°С‚С‹ РЅРµ РЅР°Р№РґРµРЅС‹")
+            self.output_text.append("Результаты не найдены")
 
-        # РџСЂРµРґР»РѕР¶РµРЅРёРµ WHOIS РїСЂРѕРІРµСЂРєРё РєР°Рє РІ Yandex-СЃРєСЂРёРїС‚Рµ
+        # Предложение WHOIS проверки как в Yandex-скрипте
         if self.results_df is not None and not self.results_df.empty and self.whois_checkbox.isChecked():
             self.output_text.append("\n" + "=" * 60)
             self.output_text.append("РћРЎРќРћР’РќРћР™ РџРђР РЎРРќР“ Р—РђР’Р•Р РЁР•Рќ")
@@ -870,22 +870,22 @@ class GoogleSearchGUI(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "WHOIS",
-                "РҐРѕС‚РёС‚Рµ РїСЂРѕРІРµСЂРёС‚СЊ РґРѕРјРµРЅС‹ С‡РµСЂРµР· WHOIS.ru?",
+                "Хотите проверить домены через WHOIS.ru?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
-                self.output_text.append("\n[WHOIS] РќР°С‡РёРЅР°СЋ РїСЂРѕРІРµСЂРєСѓ РґРѕРјРµРЅРѕРІ...")
+                self.output_text.append("\n[WHOIS] Начинаю проверку доменов...")
                 self.start_whois_check()
             else:
-                self.output_text.append("[WHOIS] РџСЂРѕРІРµСЂРєР° РґРѕРјРµРЅРѕРІ РїСЂРѕРїСѓС‰РµРЅР°.")
+                self.output_text.append("[WHOIS] Проверка доменов пропущена.")
 
     def start_whois_check(self):
         if self.results_df is None or self.results_df.empty:
-            QMessageBox.warning(self, "WHOIS", "РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ WHOIS-РїСЂРѕРІРµСЂРєРё")
+            QMessageBox.warning(self, "WHOIS", "Нет данных для WHOIS-проверки")
             return
 
-        # РќР°СЃС‚СЂРѕР№РєР° UI
+        # Настройка UI
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         self.search_button.setEnabled(False)
@@ -893,9 +893,9 @@ class GoogleSearchGUI(QMainWindow):
         self.resume_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.save_button.setEnabled(False)
-        self.report_button.setEnabled(False)  # РћС‚РєР»СЋС‡Р°РµРј РЅР° РІСЂРµРјСЏ WHOIS
+        self.report_button.setEnabled(False)  # Отключаем на время WHOIS
 
-        # Р—Р°РїСѓСЃРє WhoisWorker
+        # Запуск WhoisWorker
         self.whois_worker = WhoisWorker(self.results_df)
         self.whois_worker.progress_updated.connect(self.update_progress)
         self.whois_worker.whois_ready.connect(self.on_whois_ready)
@@ -904,11 +904,11 @@ class GoogleSearchGUI(QMainWindow):
         self.whois_worker.start()
 
     def on_whois_ready(self, df_enriched: pd.DataFrame):
-        # РћР±РЅРѕРІР»СЏРµРј С‚РµРєСѓС‰РёР№ DataFrame РЅР° РѕР±РѕРіР°С‰С‘РЅРЅС‹Р№
+        # Обновляем текущий DataFrame на обогащённый
         self.results_df = df_enriched
-        self.output_text.append("\n[WHOIS] РћР±РѕРіР°С‰РµРЅРЅС‹Рµ РґР°РЅРЅС‹Рµ РїРѕР»СѓС‡РµРЅС‹. РњРѕР¶РµС‚Рµ СЃРѕС…СЂР°РЅРёС‚СЊ СЂРµР·СѓР»СЊС‚Р°С‚С‹.")
+        self.output_text.append("\n[WHOIS] Обогащенные данные получены. Можете сохранить результаты.")
         self.save_button.setEnabled(True)
-        self.report_button.setEnabled(True)  # РђРєС‚РёРІРёСЂСѓРµРј РєРЅРѕРїРєСѓ РѕС‚С‡РµС‚Р° РїРѕСЃР»Рµ WHOIS
+        self.report_button.setEnabled(True)  # Активируем кнопку отчета после WHOIS
 
     def on_whois_finished(self):
         self.progress_bar.setVisible(False)
@@ -917,35 +917,35 @@ class GoogleSearchGUI(QMainWindow):
         self.resume_button.setEnabled(False)
 
     def on_error(self, error_message):
-        """РћР±СЂР°Р±РѕС‚РєР° РѕС€РёР±РѕРє"""
+        """Обработка ошибок"""
         self.output_text.append(f"РћРЁРР‘РљРђ: {error_message}")
-        QMessageBox.critical(self, "РћС€РёР±РєР°", error_message)
+        QMessageBox.critical(self, "Ошибка", error_message)
 
     def on_search_finished(self):
-        """Р—Р°РІРµСЂС€РµРЅРёРµ РїРѕРёСЃРєР°"""
+        """Завершение поиска"""
         self.search_button.setEnabled(True)
         self.parse_button.setEnabled(self.manual_session.is_active())
         self.resume_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.progress_bar.setVisible(False)
-        # Р•СЃР»Рё WHOIS СѓР¶Рµ Р·Р°РїСѓС‰РµРЅ вЂ” UI РѕСЃС‚Р°РЅРµС‚СЃСЏ РІ РЅРµРѕРїСЂРµРґРµР»С‘РЅРЅРѕРј РїСЂРѕРіСЂРµСЃСЃРµ, РЅРµ РјРµРЅСЏРµРј
+        # Если WHOIS уже запущен — UI останется в неопределённом прогрессе, не меняем
 
     def closeEvent(self, event):
-        """Р“Р°СЂР°РЅС‚РёСЂРѕРІР°РЅРЅРѕ Р·Р°РєСЂС‹РІР°РµС‚ СЂСѓС‡РЅСѓСЋ СЃРµСЃСЃРёСЋ Р±СЂР°СѓР·РµСЂР°."""
+        """Гарантированно закрывает ручную сессию браузера."""
         try:
             self.manual_session.stop()
         finally:
             super().closeEvent(event)
 
     def save_results(self):
-        """РЎРѕС…СЂР°РЅРµРЅРёРµ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ"""
+        """Сохранение результатов"""
         if self.results_df is None or self.results_df.empty:
-            QMessageBox.warning(self, "РћС€РёР±РєР°", "РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ!")
+            QMessageBox.warning(self, "Ошибка", "Нет данных для сохранения!")
             return
 
         query = self.query_input.text().strip()
         default_filename = f"google_results_{query.replace(' ', '_')}.csv"
-        dialog = QFileDialog(self, "РЎРѕС…СЂР°РЅРёС‚СЊ СЂРµР·СѓР»СЊС‚Р°С‚С‹")
+        dialog = QFileDialog(self, "Сохранить результаты")
         dialog.setAcceptMode(QFileDialog.AcceptSave)
         dialog.setNameFilter("CSV files (*.csv);;Excel files (*.xlsx);;All files (*.*)")
         dialog.selectFile(default_filename)
@@ -963,26 +963,26 @@ class GoogleSearchGUI(QMainWindow):
                     self.results_df.to_excel(filename, index=False)
                 else:
                     self.results_df.to_csv(filename, index=False, encoding="utf-8-sig")
-                self.output_text.append(f"Р РµР·СѓР»СЊС‚Р°С‚С‹ СЃРѕС…СЂР°РЅРµРЅС‹ РІ: {filename}")
-                QMessageBox.information(self, "РЈСЃРїРµС…", f"Р РµР·СѓР»СЊС‚Р°С‚С‹ СЃРѕС…СЂР°РЅРµРЅС‹ РІ:\n{filename}")
+                self.output_text.append(f"Результаты сохранены в: {filename}")
+                QMessageBox.information(self, "Успех", f"Результаты сохранены в:\n{filename}")
             except Exception as e:
-                error_msg = f"РћС€РёР±РєР° РїСЂРё СЃРѕС…СЂР°РЅРµРЅРёРё: {str(e)}"
+                error_msg = f"Ошибка при сохранении: {str(e)}"
                 self.output_text.append(error_msg)
-                QMessageBox.critical(self, "РћС€РёР±РєР°", error_msg)
+                QMessageBox.critical(self, "Ошибка", error_msg)
 
     def generate_html_report(self):
-        """Р“РµРЅРµСЂРёСЂСѓРµС‚ РёРЅС‚РµСЂР°РєС‚РёРІРЅС‹Р№ HTML-РѕС‚С‡РµС‚ СЃ С„РёР»СЊС‚СЂР°РјРё Рё РєРЅРѕРїРєРѕР№ СЌРєСЃРїРѕСЂС‚Р°."""
+        """Генерирует интерактивный HTML-отчет с фильтрами и кнопкой экспорта."""
         if self.results_df is None or self.results_df.empty:
-            QMessageBox.warning(self, "РћС€РёР±РєР°", "РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РіРµРЅРµСЂР°С†РёРё РѕС‚С‡РµС‚Р°!")
+            QMessageBox.warning(self, "Ошибка", "Нет данных для генерации отчета!")
             return
 
-        # РЎРѕР·РґР°РµРј РєРѕРїРёСЋ DataFrame, С‡С‚РѕР±С‹ РЅРµ РјРѕРґРёС„РёС†РёСЂРѕРІР°С‚СЊ РѕСЂРёРіРёРЅР°Р»
+        # Создаем копию DataFrame, чтобы не модифицировать оригинал
         df_report = self.results_df.copy()
 
-        # РћС‡РёС‰Р°РµРј РёРјРµРЅР° СЃС‚РѕР»Р±С†РѕРІ РґР»СЏ HTML (СѓР±РёСЂР°РµРј С‚РѕС‡РєРё Рё РїСЂРѕР±РµР»С‹)
+        # Очищаем имена столбцов для HTML (убираем точки и пробелы)
         df_report.columns = [col.replace('.', '_').replace(' ', '_') for col in df_report.columns]
 
-        # Р“РµРЅРµСЂРёСЂСѓРµРј HTML-С‚Р°Р±Р»РёС†Сѓ СЃ РїРѕРјРѕС‰СЊСЋ pandas
+        # Генерируем HTML-таблицу с помощью pandas
         html_table = df_report.to_html(
             table_id='dataTable',
             classes='display compact cell-border stripe hover order-column',
@@ -990,19 +990,19 @@ class GoogleSearchGUI(QMainWindow):
             index=False
         )
 
-        # РЁР°Р±Р»РѕРЅ HTML СЃ РїРѕРґРєР»СЋС‡РµРЅРёРµРј DataTables Рё РєРЅРѕРїРєРѕР№ СЌРєСЃРїРѕСЂС‚Р° (Р±РµР· РєРЅРѕРїРєРё РїРµС‡Р°С‚Рё)
+        # Шаблон HTML с подключением DataTables и кнопкой экспорта (без кнопки печати)
         html_template = f"""
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>РћС‚С‡РµС‚ РїРѕ РїРѕРёСЃРєСѓ: {self.query_input.text()}</title>
+    <title>Отчет по поиску: {self.query_input.text()}</title>
 
     <!-- DataTables CSS -->
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/jq-3.7.0/jszip-3.10.1/dt-2.0.3/af-2.7.0/b-3.0.1/b-colvis-3.0.1/b-html5-3.0.1/b-print-3.0.1/cr-2.0.0/date-1.5.2/fc-5.0.0/fh-4.0.1/kt-2.12.1/r-3.0.1/rg-1.5.0/rr-1.5.0/sc-2.4.1/sb-1.7.0/sp-2.3.0/sl-2.0.0/sr-1.4.1/datatables.min.css"/>
 
-    <!-- jQuery (РѕР±СЏР·Р°С‚РµР»РµРЅ РґР»СЏ DataTables) -->
+    <!-- jQuery (обязателен для DataTables) -->
     <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
     <!-- DataTables JS -->
@@ -1048,10 +1048,10 @@ class GoogleSearchGUI(QMainWindow):
 </head>
 <body>
     <div class="container">
-        <h1>РћС‚С‡РµС‚ РїРѕ РїРѕРёСЃРєСѓ: {self.query_input.text()}</h1>
+        <h1>Отчет по поиску: {self.query_input.text()}</h1>
 
         <div id="exportButtons">
-            <!-- РљРЅРѕРїРєРё СЌРєСЃРїРѕСЂС‚Р° Р±СѓРґСѓС‚ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё DataTables -->
+            <!-- Кнопки экспорта будут сгенерированы автоматически DataTables -->
         </div>
 
         {html_table}
@@ -1069,7 +1069,7 @@ class GoogleSearchGUI(QMainWindow):
                 "buttons": [
                     {{
                         "extend": 'csvHtml5',
-                        "text": 'РЎРєР°С‡Р°С‚СЊ CSV',
+                        "text": 'Скачать CSV',
                         "className": 'dt-button',
                         "charset": 'utf-8',
                         "bom": true,
@@ -1077,26 +1077,26 @@ class GoogleSearchGUI(QMainWindow):
                     }},
                     {{
                         "extend": 'excelHtml5',
-                        "text": 'РЎРєР°С‡Р°С‚СЊ Excel',
+                        "text": 'Скачать Excel',
                         "className": 'dt-button',
                         "filename": 'report_{self.query_input.text().replace(' ', '_')}'
                     }},
-                    // РљРЅРѕРїРєР° РїРµС‡Р°С‚Рё СѓРґР°Р»РµРЅР° РїРѕ С‚СЂРµР±РѕРІР°РЅРёСЋ
+                    // Кнопка печати удалена по требованию
                     {{
                         "extend": 'colvis',
-                        "text": 'РџРѕРєР°Р·Р°С‚СЊ/РЎРєСЂС‹С‚СЊ СЃС‚РѕР»Р±С†С‹',
+                        "text": 'Показать/Скрыть столбцы',
                         "className": 'dt-button'
                     }}
                 ],
                 "initComplete": function() {{
-                    // Р”РѕР±Р°РІР»СЏРµРј С„РёР»СЊС‚СЂС‹ РїРѕРґ РєР°Р¶РґС‹Рј СЃС‚РѕР»Р±С†РѕРј
+                    // Добавляем фильтры под каждым столбцом
                     this.api().columns().every(function() {{
                         var column = this;
                         var header = $(column.header());
                         var title = header.text();
                         
-                        // РЎРѕР·РґР°РµРј input РґР»СЏ С„РёР»СЊС‚СЂР°С†РёРё
-                        var input = $('<input type="text" placeholder="Р¤РёР»СЊС‚СЂ ' + title + '" />')
+                        // Создаем input для фильтрации
+                        var input = $('<input type="text" placeholder="Фильтр ' + title + '" />')
                             .appendTo($(column.footer()).empty())
                             .on('keyup change clear', function() {{
                                 if (column.search() !== this.value) {{
@@ -1114,31 +1114,31 @@ class GoogleSearchGUI(QMainWindow):
 </html>
         """
 
-        # РЎРѕС…СЂР°РЅСЏРµРј HTML-С„Р°Р№Р» РІРѕ РІСЂРµРјРµРЅРЅСѓСЋ РґРёСЂРµРєС‚РѕСЂРёСЋ
+        # Сохраняем HTML-файл во временную директорию
         query = self.query_input.text().strip()
         temp_filename = f"interactive_report_{query.replace(' ', '_')}.html"
-        temp_path = os.path.join(os.getcwd(), temp_filename)  # РЎРѕС…СЂР°РЅСЏРµРј РІ С‚РµРєСѓС‰РµР№ РґРёСЂРµРєС‚РѕСЂРёРё
+        temp_path = os.path.join(os.getcwd(), temp_filename)  # Сохраняем в текущей директории
 
         try:
             with open(temp_path, 'w', encoding='utf-8') as f:
                 f.write(html_template)
             self.output_text.append(f"РРЅС‚РµСЂР°РєС‚РёРІРЅС‹Р№ HTML-РѕС‚С‡РµС‚ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅ: {temp_path}")
 
-            # РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё РѕС‚РєСЂС‹РІР°РµРј С„Р°Р№Р» РІ Р±СЂР°СѓР·РµСЂРµ
+            # Автоматически открываем файл в браузере
             QDesktopServices.openUrl(QUrl.fromLocalFile(temp_path))
 
-            QMessageBox.information(self, "РЈСЃРїРµС…", f"РћС‚С‡РµС‚ РѕС‚РєСЂС‹С‚ РІ РІР°С€РµРј Р±СЂР°СѓР·РµСЂРµ!")
+            QMessageBox.information(self, "Успех", f"Отчет открыт в вашем браузере!")
 
         except Exception as e:
-            error_msg = f"РћС€РёР±РєР° РїСЂРё РіРµРЅРµСЂР°С†РёРё РёР»Рё РѕС‚РєСЂС‹С‚РёРё HTML-РѕС‚С‡РµС‚Р°: {str(e)}"
+            error_msg = f"Ошибка при генерации или открытии HTML-отчета: {str(e)}"
             self.output_text.append(error_msg)
-            QMessageBox.critical(self, "РћС€РёР±РєР°", error_msg)
+            QMessageBox.critical(self, "Ошибка", error_msg)
 
 def main():
     app = QApplication(sys.argv)
-    # РЈСЃС‚Р°РЅРѕРІРєР° СЃС‚РёР»СЏ РїСЂРёР»РѕР¶РµРЅРёСЏ
+    # Установка стиля приложения
     app.setStyle('Fusion')
-    # РЎРѕР·РґР°РЅРёРµ Рё РїРѕРєР°Р· РіР»Р°РІРЅРѕРіРѕ РѕРєРЅР°
+    # Создание и показ главного окна
     window = GoogleSearchGUI()
     window.show()
     sys.exit(app.exec_())
