@@ -152,7 +152,7 @@ class GoogleSearchWorker(QThread):
     error_occurred = pyqtSignal(str)
     captcha_detected = pyqtSignal(int)
 
-    def __init__(self, query, page_from, page_to, parse_all_pages, collect_contacts, results_per_page, profile_dir):
+    def __init__(self, query, page_from, page_to, parse_all_pages, collect_contacts, results_per_page, storage_state_path=None):
         super().__init__()
         self.query = query
         self.page_from = page_from
@@ -160,7 +160,7 @@ class GoogleSearchWorker(QThread):
         self.parse_all_pages = parse_all_pages
         self.collect_contacts = collect_contacts
         self.results_per_page = results_per_page
-        self.profile_dir = profile_dir
+        self.storage_state_path = storage_state_path
         self.is_running = True
         self.captcha_resume_event = threading.Event()
         self.captcha_resume_event.set()
@@ -273,8 +273,7 @@ class GoogleSearchWorker(QThread):
                     return
 
                 self.emit_progress("Запуск браузера...")
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
+                browser = p.chromium.launch(
                     headless=False,
                     args=[
                         '--disable-blink-features=AutomationControlled',
@@ -282,9 +281,16 @@ class GoogleSearchWorker(QThread):
                         '--no-default-browser-check',
                         '--start-maximized',
                     ],
-                    locale='ru-RU',
-                    no_viewport=True,
                 )
+                context_kwargs = {
+                    'locale': 'ru-RU',
+                    'viewport': {'width': 1920, 'height': 1080},
+                }
+                if self.storage_state_path and os.path.exists(self.storage_state_path):
+                    context_kwargs['storage_state'] = self.storage_state_path
+                    self.emit_progress("Используется сессия из ручного браузера")
+
+                context = browser.new_context(**context_kwargs)
                 context.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', {
                         get: () => undefined,
@@ -426,6 +432,7 @@ class GoogleSearchWorker(QThread):
                     time.sleep(random.uniform(2, 4))
 
                 context.close()
+                browser.close()
 
             df = pd.DataFrame(all_results)
             if not df.empty:
@@ -635,9 +642,11 @@ class GoogleSearchGUI(QMainWindow):
         info_group = QGroupBox("Ключевые особенности и рекомендации")
         info_layout = QVBoxLayout()
         readme_text = ("<ul style='margin-left: -20px;'>"
-                       "<li><b>Производительность сбора:</b> Приложение обрабатывает до 100 результатов с каждой страницы поисковой выдачи Google.</li>"
-                       "<li><b>Ограничения Google:</b> Поисковая система Google, как правило, ограничивает общее количество результатов примерно до 300 позиций (эквивалентно 3 страницам).</li>"
-                       "<li><b>Сбор контактных данных:</b> Активация функции сбора email-адресов значительно увеличивает общее время выполнения задачи, так как требует последовательного посещения и анализа каждого найденного веб-сайта.</li>"
+                       "<li><b>Шаг 1 - Начать поиск:</b> открывается видимый браузер с вашим запросом. На этом этапе вы вручную проходите капчу и любые проверки Google.</li>"
+                       "<li><b>Шаг 2 - Начать парсинг:</b> сбор запускается в отдельном окне браузера с подхваченной пользовательской сессией, поэтому ручной браузер не закрывается.</li>"
+                       "<li><b>Пагинация:</b> можно парсить диапазон страниц (от/до) или все страницы до тех пор, пока доступна кнопка \"Следующая\".</li>"
+                       "<li><b>Если во время парсинга появилась капча:</b> решите ее в окне парсинга и нажмите кнопку \"Продолжить после капчи\" в программе.</li>"
+                       "<li><b>Экспорт:</b> результаты сохраняются как CSV или Excel (.xlsx) в зависимости от выбранного формата в диалоге сохранения.</li>"
                        "</ul>")
         info_label = QLabel(readme_text)
         info_label.setWordWrap(True)
@@ -666,7 +675,7 @@ class GoogleSearchGUI(QMainWindow):
         self.stop_button.setEnabled(False)
         buttons_layout.addWidget(self.stop_button)
 
-        self.save_button = QPushButton("Сохранить CSV/Excel")
+        self.save_button = QPushButton("Сохранить")
         self.save_button.clicked.connect(self.save_results)
         self.save_button.setEnabled(False)
         buttons_layout.addWidget(self.save_button)
@@ -757,8 +766,11 @@ class GoogleSearchGUI(QMainWindow):
         if not self.manual_session.is_active():
             QMessageBox.warning(self, "Поиск", "Сначала нажмите 'Начать поиск' и решите капчу в браузере.")
             return
-        profile_dir = self.manual_session.profile_dir
-        self.manual_session.stop()
+        try:
+            storage_state_path = self.manual_session.export_storage_state()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось получить сессию браузера: {e}")
+            return
 
         page_from = self.page_from_spinbox.value()
         page_to = self.page_to_spinbox.value()
@@ -806,7 +818,7 @@ class GoogleSearchGUI(QMainWindow):
             parse_all_pages,
             collect_contacts,
             results_per_page,
-            profile_dir,
+            storage_state_path,
         )
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.captcha_detected.connect(self.on_captcha_detected)
@@ -957,10 +969,17 @@ class GoogleSearchGUI(QMainWindow):
             selected = dialog.selectedFiles()
             if selected:
                 filename = selected[0]
+                selected_filter = dialog.selectedNameFilter()
+                _, ext = os.path.splitext(filename)
+                if not ext:
+                    if "Excel" in selected_filter:
+                        filename += ".xlsx"
+                    elif "CSV" in selected_filter:
+                        filename += ".csv"
 
         if filename:
             try:
-                if filename.endswith('.xlsx'):
+                if filename.lower().endswith('.xlsx'):
                     self.results_df.to_excel(filename, index=False)
                 else:
                     self.results_df.to_csv(filename, index=False, encoding="utf-8-sig")
