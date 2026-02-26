@@ -880,25 +880,74 @@ class GoogleSearchGUI(QMainWindow):
     def extract_contacts_local(self, page_content):
         contacts = {'emails': [], 'phones': [], 'social_links': []}
 
-        email_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b'
-        full_emails = [m.group(0) for m in re.finditer(email_pattern, page_content, re.IGNORECASE)]
-        contacts['emails'] = sorted(set(full_emails))
+        soup = BeautifulSoup(page_content, 'html.parser')
+        for tag in soup(['script', 'style', 'noscript']):
+            tag.decompose()
+
+        def normalize_email(raw_email):
+            email = (raw_email or '').strip().lower()
+            if not email or '@' not in email:
+                return None
+            local, domain = email.split('@', 1)
+            if len(local) < 3:
+                return None
+            if local.isdigit():
+                return None
+            # Отсекаем явный мусор в стиле "--@mail.ru" или ".a@x.ru"
+            if not re.match(r'^[a-z0-9][a-z0-9._+-]*[a-z0-9]$', local):
+                return None
+            if not re.match(r'^[a-z0-9.-]+\.[a-z]{2,}$', domain):
+                return None
+            return f"{local}@{domain}"
+
+        def normalize_phone(raw_phone):
+            raw = (raw_phone or '').strip()
+            if not raw:
+                return None
+
+            # Для телефонов берем только цифры; плюс нам нужен только как признак формата.
+            digits = re.sub(r'\D', '', raw)
+            if not digits:
+                return None
+
+            # Удаляем префикс 00 (международный набор), если есть.
+            if digits.startswith('00'):
+                digits = digits[2:]
+
+            # Целевой формат: РФ/КЗ номер 11 цифр, начинающийся с 7/8.
+            # Примеры: +7495..., 8495..., 8(495)..., +7711...
+            if len(digits) == 11 and digits[0] in ('7', '8'):
+                if digits[0] == '8':
+                    digits = '7' + digits[1:]
+                return '+' + digits
+
+            # Иногда встречается 10-значный номер без первой 7/8.
+            # Приведем к +7XXXXXXXXXX.
+            if len(digits) == 10:
+                return '+7' + digits
+
+            return None
+
+        email_pattern = r'\b[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+        raw_emails = [m.group(0) for m in re.finditer(email_pattern, soup.get_text(' ', strip=True), re.IGNORECASE)]
+        for a in soup.select('a[href^=\"mailto:\"]'):
+            raw_emails.append((a.get('href') or '')[7:].split('?')[0].strip())
+        contacts['emails'] = sorted(set(filter(None, (normalize_email(e) for e in raw_emails))))
 
         phone_candidates = []
-        for m in re.finditer(r'(?:\+?\d[\d\-\(\)\s]{8,}\d)', page_content):
-            phone_candidates.append(m.group(0))
+        # Явные телефонные ссылки.
+        for a in soup.select('a[href^=\"tel:\"]'):
+            phone_candidates.append((a.get('href') or '')[4:])
+            phone_candidates.append(a.get_text(' ', strip=True))
 
-        normalized_phones = []
-        for raw in phone_candidates:
-            phone = re.sub(r'[^0-9+]', '', raw)
-            if phone.startswith('8') and len(phone) == 11:
-                phone = '+7' + phone[1:]
-            digits_count = len(re.sub(r'\D', '', phone))
-            if 10 <= digits_count <= 15:
-                normalized_phones.append(phone)
-        contacts['phones'] = sorted(set(normalized_phones))
+        # Текстовые телефоны: берем только шаблоны с разделителями, чтобы не ловить длинные ID/таймстемпы.
+        visible_text = soup.get_text(' ', strip=True)
+        phone_pattern = r'(?:(?:\+7|8)[\s\-\(\)]*\d(?:[\s\-\(\)]*\d){9,10})'
+        phone_candidates.extend(m.group(0) for m in re.finditer(phone_pattern, visible_text))
 
-        soup = BeautifulSoup(page_content, 'html.parser')
+        normalized_phones = sorted(set(filter(None, (normalize_phone(p) for p in phone_candidates))))
+        contacts['phones'] = normalized_phones
+
         social_domains = (
             'vk.com', 't.me', 'telegram.me', 'wa.me', 'whatsapp.com',
             'instagram.com', 'facebook.com', 'fb.com', 'ok.ru',
@@ -929,7 +978,7 @@ class GoogleSearchGUI(QMainWindow):
                 social_links.append(href)
 
         contacts['emails'] = sorted(set(contacts['emails']))
-        contacts['phones'] = sorted(set(normalized_phones))
+        contacts['phones'] = sorted(set(contacts['phones']))
         contacts['social_links'] = sorted(set(social_links))
         return contacts
 
