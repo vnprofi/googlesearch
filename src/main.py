@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import sys
 import os
 import subprocess
@@ -24,7 +25,7 @@ from function import ManualGoogleSession
 # Настройка пути к браузерам Playwright
 # Корректно работает как из исходников, так и из упакованного PyInstaller-exe
 # Определяем базовый каталог: в собранном onefile PyInstaller данные распаковываются
-# РІРѕ РІСЂРµРјРµРЅРЅСѓСЋ РїР°РїРєСѓ, РїСѓС‚СЊ Рє РєРѕС‚РѕСЂРѕР№ С…СЂР°РЅРёС‚СЃСЏ РІ sys._MEIPASS. РСЃРїРѕР»СЊР·СѓРµРј РµРіРѕ, С‡С‚РѕР±С‹
+# во временную папку, путь к которой хранится в sys._MEIPASS. Используем его, чтобы
 # найти встроенную папку ms-playwright.
 if getattr(sys, 'frozen', False):
     # В onefile-режиме PyInstaller создаёт временную директорию _MEI***
@@ -36,13 +37,13 @@ if platform.system() == "Darwin":  # macOS
     # Для macOS браузеры Playwright по умолчанию устанавливаются в кеш пользователя
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expanduser("~/Library/Caches/ms-playwright")
 else:  # Windows/Linux
-    # РС‰РµРј РєР°С‚Р°Р»РѕРі ms-playwright СЂСЏРґРѕРј СЃ РёСЃРїРѕР»РЅСЏРµРјС‹Рј С„Р°Р№Р»РѕРј
+    # Ищем каталог ms-playwright рядом с исполняемым файлом
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "ms-playwright")
 
 WHOIS_REQUEST_DELAY = 1.0
 
 def extract_domain_from_url(url: str) -> Optional[str]:
-    """РР·РІР»РµРєР°РµС‚ С‡РёСЃС‚С‹Р№ РґРѕРјРµРЅ РёР· СЃС‚СЂРѕРєРё URL/С†РёС‚Р°С†РёРё."""
+    """Извлекает чистый домен из строки URL/цитации."""
     if not url:
         return None
     try:
@@ -110,7 +111,7 @@ def get_whois_data(domain: str) -> Dict[str, Optional[str]]:
                 if not strong:
                     continue
                 value = strong.get_text().strip()
-                if 'РРЅРґРµРєСЃ С†РёС‚РёСЂРѕРІР°РЅРёСЏ' in text:
+                if 'Индекс цитирования' in text:
                     whois_data['citation_index'] = value
                 elif 'Рейтинг Alexa' in text:
                     whois_data['alexa_rating'] = value
@@ -200,10 +201,10 @@ class GoogleSearchWorker(QThread):
         return self.is_running
 
     def extract_contacts(self, page_content, page=None):
-        """РР·РІР»РµРєР°РµС‚ С‚РѕР»СЊРєРѕ email РёР· HTML СЃС‚СЂР°РЅРёС†С‹"""
+        """Извлекает только email из HTML страницы"""
         soup = BeautifulSoup(page_content, 'html.parser')
         contacts = {'emails': []}
-        # РР·РІР»РµРєР°РµРј email СЃ СѓР»СѓС‡С€РµРЅРЅС‹Рј РїР°С‚С‚РµСЂРЅРѕРј
+        # Извлекаем email с улучшенным паттерном
         email_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b'
         emails = re.findall(email_pattern, page_content, re.IGNORECASE)
         # Собираем полные email адреса
@@ -236,7 +237,7 @@ class GoogleSearchWorker(QThread):
             full_content = page.content()
             # Дополнительно ищем в специфичных элементах
             additional_content = ""
-            # РС‰РµРј РІ footer, header, РєРѕРЅС‚Р°РєС‚РЅС‹С… СЃРµРєС†РёСЏС…
+            # Ищем в footer, header, контактных секциях
             selectors = [
                 'footer', 'header', '[class*="contact"]', '[class*="footer"]',
                 '[class*="header"]', '[id*="contact"]', '[id*="footer"]',
@@ -256,7 +257,7 @@ class GoogleSearchWorker(QThread):
                     continue
             # Объединяем весь контент
             combined_content = full_content + " " + additional_content
-            # РР·РІР»РµРєР°РµРј РєРѕРЅС‚Р°РєС‚С‹
+            # Извлекаем контакты
             contacts = self.extract_contacts(combined_content, page)
             return contacts
         except Exception as e:
@@ -572,7 +573,7 @@ class GoogleSearchGUI(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        """РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ РёРЅС‚РµСЂС„РµР№СЃР°"""
+        """Инициализация пользовательского интерфейса"""
         self.setWindowTitle("Google Search Tool v1.1")
         self.setGeometry(100, 100, 800, 650)
 
@@ -865,7 +866,7 @@ class GoogleSearchGUI(QMainWindow):
         # Предложение WHOIS проверки как в Yandex-скрипте
         if self.results_df is not None and not self.results_df.empty and self.whois_checkbox.isChecked():
             self.output_text.append("\n" + "=" * 60)
-            self.output_text.append("РћРЎРќРћР’РќРћР™ РџРђР РЎРРќР“ Р—РђР’Р•Р РЁР•Рќ")
+            self.output_text.append("ОСНОВНОЙ ПАРСИНГ ЗАВЕРШЕН")
             self.output_text.append("=" * 60)
             reply = QMessageBox.question(
                 self,
@@ -918,7 +919,7 @@ class GoogleSearchGUI(QMainWindow):
 
     def on_error(self, error_message):
         """Обработка ошибок"""
-        self.output_text.append(f"РћРЁРР‘РљРђ: {error_message}")
+        self.output_text.append(f"ОШИБКА: {error_message}")
         QMessageBox.critical(self, "Ошибка", error_message)
 
     def on_search_finished(self):
@@ -1122,7 +1123,7 @@ class GoogleSearchGUI(QMainWindow):
         try:
             with open(temp_path, 'w', encoding='utf-8') as f:
                 f.write(html_template)
-            self.output_text.append(f"РРЅС‚РµСЂР°РєС‚РёРІРЅС‹Р№ HTML-РѕС‚С‡РµС‚ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅ: {temp_path}")
+            self.output_text.append(f"Интерактивный HTML-отчет сгенерирован: {temp_path}")
 
             # Автоматически открываем файл в браузере
             QDesktopServices.openUrl(QUrl.fromLocalFile(temp_path))
