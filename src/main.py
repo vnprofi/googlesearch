@@ -578,6 +578,9 @@ class GoogleSearchGUI(QMainWindow):
         self.page_from_spinbox = None
         self.page_to_spinbox = None
         self.manual_session = ManualGoogleSession(base_dir)
+        self.is_parsing = False
+        self.stop_requested = False
+        self.resume_requested = False
         self.init_ui()
 
     def init_ui(self):
@@ -753,10 +756,11 @@ class GoogleSearchGUI(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть браузер: {e}")
 
     def resume_after_captcha(self):
+        self.resume_requested = True
         if self.worker:
             self.worker.resume_after_captcha()
-            self.resume_button.setEnabled(False)
-            self.output_text.append("Продолжение после капчи запрошено.")
+        self.resume_button.setEnabled(False)
+        self.output_text.append("Продолжение после капчи запрошено.")
 
     def start_search(self):
         """Запуск поиска"""
@@ -767,12 +771,6 @@ class GoogleSearchGUI(QMainWindow):
         if not self.manual_session.is_active():
             self.parse_button.setEnabled(False)
             QMessageBox.warning(self, "Поиск", "Сначала нажмите 'Начать поиск' и решите капчу в браузере.")
-            return
-        try:
-            storage_state_path = self.manual_session.export_storage_state()
-        except Exception as e:
-            self.parse_button.setEnabled(False)
-            QMessageBox.critical(self, "Ошибка", f"Не удалось получить сессию браузера: {e}")
             return
 
         page_from = self.page_from_spinbox.value()
@@ -802,6 +800,7 @@ class GoogleSearchGUI(QMainWindow):
 
         # Сброс WHOIS
         self.whois_worker = None
+        self.worker = None
 
         # Настройка UI для поиска
         self.search_button.setEnabled(False)
@@ -812,27 +811,26 @@ class GoogleSearchGUI(QMainWindow):
         self.report_button.setEnabled(False)  # Отключаем кнопку отчета
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
+        self.stop_requested = False
+        self.resume_requested = False
+        self.is_parsing = True
 
-        # Создание и запуск worker'а
-        self.worker = GoogleSearchWorker(
-            query,
-            page_from,
-            page_to,
-            parse_all_pages,
-            collect_contacts,
-            results_per_page,
-            storage_state_path,
+        self.run_search_in_manual_browser(
+            query=query,
+            page_from=page_from,
+            page_to=page_to,
+            parse_all_pages=parse_all_pages,
+            collect_contacts=collect_contacts,
+            results_per_page=results_per_page,
         )
-        self.worker.progress_updated.connect(self.update_progress)
-        self.worker.captcha_detected.connect(self.on_captcha_detected)
-        self.worker.results_ready.connect(self.on_results_ready)
-        self.worker.error_occurred.connect(self.on_error)
-        self.worker.finished.connect(self.on_search_finished)
-        self.worker.start()
 
     def stop_search(self):
         """Остановка поиска"""
         self.resume_button.setEnabled(False)
+        self.stop_requested = True
+        if self.is_parsing:
+            self.output_text.append("Поиск остановлен пользователем")
+            return
         if self.worker:
             self.worker.stop()
             self.worker.quit()
@@ -856,6 +854,223 @@ class GoogleSearchGUI(QMainWindow):
             f"Капча на странице {page_number}: "
             f"решите ее в браузере и нажмите 'Продолжить после капчи'."
         )
+
+    def is_captcha_page(self, page):
+        try:
+            url = page.url.lower()
+            return (
+                'captcha' in url or
+                '/sorry/' in url or
+                'sorry/index' in url or
+                page.locator('text=Я не робот').count() > 0 or
+                page.locator('form[action*=\"sorry\"]').count() > 0
+            )
+        except Exception:
+            return False
+
+    def wait_for_captcha_resolution(self, page_number):
+        self.on_captcha_detected(page_number)
+        self.resume_requested = False
+        while not self.stop_requested and not self.resume_requested:
+            QApplication.processEvents()
+            time.sleep(0.2)
+        self.resume_requested = False
+        return not self.stop_requested
+
+    def extract_contacts_local(self, page_content):
+        contacts = {'emails': []}
+        email_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b'
+        full_emails = [m.group(0) for m in re.finditer(email_pattern, page_content, re.IGNORECASE)]
+        contacts['emails'] = list(set(full_emails))
+        return contacts
+
+    def fetch_page_contacts_local(self, url, page):
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=20000)
+            time.sleep(random.uniform(2, 4))
+            try:
+                page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception:
+                pass
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(1)
+                page.evaluate("window.scrollTo(0, 0)")
+            except Exception:
+                pass
+
+            full_content = page.content()
+            additional_content = ""
+            selectors = [
+                'footer', 'header', '[class*=\"contact\"]', '[class*=\"footer\"]',
+                '[class*=\"header\"]', '[id*=\"contact\"]', '[id*=\"footer\"]',
+                '[id*=\"header\"]', '.contacts', '.contact-info', '.contact-us'
+            ]
+            for selector in selectors:
+                try:
+                    elements = page.locator(selector).all()
+                    for element in elements:
+                        try:
+                            text = element.inner_html()
+                            if text:
+                                additional_content += text + " "
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            combined_content = full_content + " " + additional_content
+            return self.extract_contacts_local(combined_content)
+        except Exception as e:
+            self.update_progress(f"Ошибка при обработке {url}: {e}")
+            return {'emails': []}
+
+    def run_search_in_manual_browser(self, query, page_from, page_to, parse_all_pages, collect_contacts, results_per_page):
+        all_results = []
+        contacts_page = None
+        try:
+            context = self.manual_session.context
+            if context is None:
+                raise RuntimeError("Ручная сессия браузера недоступна")
+            page = self.manual_session.page or (context.pages[0] if context.pages else context.new_page())
+            self.manual_session.page = page
+            page.bring_to_front()
+
+            if collect_contacts:
+                contacts_page = context.new_page()
+
+            page_number = page_from
+            start_value = max(0, (page_from - 1) * 10)
+            first_url = f"https://www.google.com/search?q={query}&hl=ru&start={start_value}&filter=0"
+            page.goto(first_url, wait_until='domcontentloaded', timeout=45000)
+
+            while not self.stop_requested:
+                QApplication.processEvents()
+                if self.is_captcha_page(page):
+                    if not self.wait_for_captcha_resolution(page_number):
+                        break
+                    page.wait_for_load_state('domcontentloaded', timeout=45000)
+                    continue
+
+                target_page = "ALL" if parse_all_pages else str(page_to)
+                self.update_progress(f"Обработка страницы {page_number} из {target_page}...")
+                time.sleep(random.uniform(2, 4))
+
+                html = page.content()
+                soup = BeautifulSoup(html, 'html.parser')
+                result_blocks = (
+                    soup.select('div.MjjYud') or
+                    soup.select('div.g') or
+                    soup.select('div[data-ved]') or
+                    soup.select('.tF2Cxc') or
+                    soup.select('div.ZINbbc') or
+                    soup.select('div.kCrYT')
+                )
+                self.update_progress(f"Найдено блоков на странице {page_number}: {len(result_blocks)}")
+
+                if not result_blocks:
+                    self.update_progress("Блоки результатов не найдены")
+                    if page_number == page_from:
+                        self.update_progress("Возможно, Google блокирует запросы")
+                    break
+
+                page_results = []
+                if results_per_page:
+                    result_blocks = result_blocks[:results_per_page]
+
+                for i, block in enumerate(result_blocks):
+                    if self.stop_requested:
+                        break
+                    try:
+                        title = ''
+                        url_link = ''
+                        cite = ''
+                        snippet = ''
+
+                        a_tag = (
+                            block.select_one('a[href^=\"http\"]') or
+                            block.select_one('a[href^=\"https\"]') or
+                            block.select_one('a.zReHs') or
+                            block.select_one('h3 a') or
+                            block.select_one('a[data-ved]')
+                        )
+                        h3_tag = (
+                            block.select_one('h3') or
+                            block.select_one('h3.LC20lb') or
+                            block.select_one('.DKV0Md') or
+                            block.select_one('h3.r') or
+                            block.select_one('[role=\"heading\"]')
+                        )
+                        cite_tag = (
+                            block.select_one('cite') or
+                            block.select_one('cite.qLRx3b') or
+                            block.select_one('.tjvcx') or
+                            block.select_one('.UdvAnf')
+                        )
+                        snippet_tag = (
+                            block.select_one('div.VwiC3b') or
+                            block.select_one('.s') or
+                            block.select_one('span[data-ved]') or
+                            block.select_one('.st') or
+                            block.select_one('.X5LH0c')
+                        )
+
+                        if a_tag:
+                            url_link = a_tag.get('href', '')
+                        if h3_tag:
+                            title = h3_tag.get_text(strip=True)
+                        if cite_tag:
+                            cite = cite_tag.get_text(strip=True)
+                        if snippet_tag:
+                            snippet = snippet_tag.get_text(strip=True)
+
+                        if url_link and not url_link.startswith('http'):
+                            continue
+
+                        if title and url_link:
+                            result_data = {'title': title, 'url': url_link, 'cite': cite, 'snippet': snippet}
+                            if collect_contacts and contacts_page is not None:
+                                self.update_progress(f"Собираем контакты с: {url_link}")
+                                contacts = self.fetch_page_contacts_local(url_link, contacts_page)
+                                result_data['emails'] = ', '.join(contacts.get('emails', []))
+                            page_results.append(result_data)
+                    except Exception as e:
+                        self.update_progress(f"Ошибка при обработке блока {i}: {e}")
+                        continue
+
+                if not page_results:
+                    self.update_progress(f"Нет результатов на странице {page_number}, завершаем сбор")
+                    break
+
+                all_results.extend(page_results)
+                self.update_progress(f"Собрано {len(page_results)} результатов со страницы {page_number}")
+
+                if not parse_all_pages and page_number >= page_to:
+                    break
+
+                next_btn = page.locator('a#pnnext')
+                if next_btn.count() == 0:
+                    self.update_progress("Следующая страница недоступна. Завершаем сбор.")
+                    break
+
+                next_btn.first.click(timeout=15000)
+                page.wait_for_load_state('domcontentloaded', timeout=45000)
+                page_number += 1
+                time.sleep(random.uniform(2, 4))
+
+            df = pd.DataFrame(all_results)
+            if not df.empty:
+                df = df.drop_duplicates(subset=['url'], keep='first')
+            self.on_results_ready(df)
+        except Exception as e:
+            self.on_error(f"Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
+        finally:
+            if contacts_page:
+                try:
+                    contacts_page.close()
+                except Exception:
+                    pass
+            self.is_parsing = False
+            self.on_search_finished()
 
     def on_results_ready(self, df):
         """Обработка готовых результатов"""
