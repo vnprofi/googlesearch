@@ -1350,6 +1350,11 @@ class GoogleSearchGUI(QMainWindow):
             index=False
         )
 
+        report_query = self.query_input.text().strip()
+        report_rows = len(df_report.index)
+        report_columns = len(df_report.columns)
+        generated_at = time.strftime("%d.%m.%Y %H:%M:%S")
+
         # Шаблон HTML с подключением DataTables и кнопкой экспорта (без кнопки печати)
         html_template = f"""
 <!DOCTYPE html>
@@ -1357,10 +1362,13 @@ class GoogleSearchGUI(QMainWindow):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отчет по поиску: {self.query_input.text()}</title>
+    <title>Отчет по поиску: {report_query}</title>
 
     <!-- DataTables CSS -->
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/jq-3.7.0/jszip-3.10.1/dt-2.0.3/af-2.7.0/b-3.0.1/b-colvis-3.0.1/b-html5-3.0.1/b-print-3.0.1/cr-2.0.0/date-1.5.2/fc-5.0.0/fh-4.0.1/kt-2.12.1/r-3.0.1/rg-1.5.0/rr-1.5.0/sc-2.4.1/sb-1.7.0/sp-2.3.0/sl-2.0.0/sr-1.4.1/datatables.min.css"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 
     <!-- jQuery (обязателен для DataTables) -->
     <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -1369,52 +1377,182 @@ class GoogleSearchGUI(QMainWindow):
     <script type="text/javascript" src="https://cdn.datatables.net/v/dt/jq-3.7.0/jszip-3.10.1/dt-2.0.3/af-2.7.0/b-3.0.1/b-colvis-3.0.1/b-html5-3.0.1/b-print-3.0.1/cr-2.0.0/date-1.5.2/fc-5.0.0/fh-4.0.1/kt-2.12.1/r-3.0.1/rg-1.5.0/rr-1.5.0/sc-2.4.1/sb-1.7.0/sp-2.3.0/sl-2.0.0/sr-1.4.1/datatables.min.js"></script>
 
     <style>
+        :root {{
+            --bg: #f6f8fb;
+            --card: #ffffff;
+            --text: #1f2937;
+            --muted: #64748b;
+            --brand: #0f766e;
+            --brand-2: #0ea5e9;
+            --line: #e2e8f0;
+            --shadow: 0 14px 40px rgba(15, 23, 42, 0.10);
+        }}
+
+        * {{
+            box-sizing: border-box;
+        }}
+
         body {{
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
+            margin: 0;
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 8% 10%, rgba(14, 165, 233, 0.12), transparent 35%),
+                radial-gradient(circle at 92% 0%, rgba(15, 118, 110, 0.13), transparent 30%),
+                var(--bg);
         }}
+
         .container {{
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            max-width: 1400px;
+            margin: 28px auto;
+            padding: 0 18px 24px;
         }}
-        h1 {{
-            color: #333;
-            text-align: center;
-            margin-bottom: 20px;
+
+        .hero {{
+            background: linear-gradient(135deg, rgba(15, 118, 110, 0.95), rgba(14, 165, 233, 0.92));
+            color: #fff;
+            border-radius: 18px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            margin-bottom: 16px;
         }}
+
+        .hero h1 {{
+            margin: 0 0 8px;
+            font-size: 28px;
+            line-height: 1.15;
+            font-weight: 800;
+        }}
+
+        .hero p {{
+            margin: 0;
+            opacity: 0.95;
+            font-size: 14px;
+        }}
+
+        .stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin: 16px 0;
+        }}
+
+        .stat {{
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+        }}
+
+        .stat .label {{
+            display: block;
+            font-size: 12px;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }}
+
+        .stat .value {{
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--text);
+        }}
+
+        .table-wrap {{
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            padding: 14px;
+        }}
+
         #exportButtons {{
-            margin-bottom: 15px;
-            text-align: center;
+            margin-bottom: 10px;
+            text-align: left;
         }}
-        .dt-buttons {{
-            display: inline-block;
-        }}
+
         .dt-button {{
-            background-color: #007bff !important;
-            color: white !important;
+            background: linear-gradient(135deg, var(--brand), var(--brand-2)) !important;
+            color: #fff !important;
             border: none !important;
-            padding: 8px 16px !important;
-            margin: 5px !important;
-            border-radius: 4px !important;
+            padding: 8px 14px !important;
+            margin: 4px 6px 6px 0 !important;
+            border-radius: 10px !important;
+            font-weight: 700 !important;
             cursor: pointer !important;
         }}
+
         .dt-button:hover {{
-            background-color: #0056b3 !important;
+            filter: brightness(1.06);
+        }}
+
+        table.dataTable thead th {{
+            background: #f8fafc !important;
+            color: #0f172a !important;
+            border-bottom: 1px solid var(--line) !important;
+            font-weight: 800 !important;
+        }}
+
+        table.dataTable tbody td {{
+            border-bottom: 1px solid #eef2f7 !important;
+            vertical-align: top;
+            font-size: 13px;
+        }}
+
+        .dataTables_filter input,
+        .dataTables_length select {{
+            border: 1px solid var(--line) !important;
+            border-radius: 8px !important;
+            padding: 6px 8px !important;
+            background: #fff;
+        }}
+
+        @media (max-width: 900px) {{
+            .hero {{
+                padding: 18px;
+                border-radius: 14px;
+            }}
+            .hero h1 {{
+                font-size: 22px;
+            }}
+            .table-wrap {{
+                padding: 10px;
+            }}
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Отчет по поиску: {self.query_input.text()}</h1>
-
-        <div id="exportButtons">
-            <!-- Кнопки экспорта будут сгенерированы автоматически DataTables -->
+        <div class="hero">
+            <h1>Отчет по поиску</h1>
+            <p><b>Запрос:</b> {report_query}</p>
+            <p><b>Сформирован:</b> {generated_at}</p>
         </div>
 
-        {html_table}
+        <div class="stats">
+            <div class="stat">
+                <span class="label">Найдено строк</span>
+                <span class="value">{report_rows}</span>
+            </div>
+            <div class="stat">
+                <span class="label">Столбцов</span>
+                <span class="value">{report_columns}</span>
+            </div>
+            <div class="stat">
+                <span class="label">Экспорт</span>
+                <span class="value">CSV / Excel</span>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <div id="exportButtons">
+                <!-- Кнопки экспорта будут сгенерированы автоматически DataTables -->
+            </div>
+
+            {html_table}
+        </div>
 
     </div>
 
