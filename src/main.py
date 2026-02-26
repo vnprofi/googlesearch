@@ -1069,6 +1069,8 @@ class GoogleSearchGUI(QMainWindow):
                     contacts_page.close()
                 except Exception:
                     pass
+            # После завершения/остановки закрываем ручный браузер.
+            self.manual_session.stop()
             self.is_parsing = False
             self.on_search_finished()
 
@@ -1144,7 +1146,7 @@ class GoogleSearchGUI(QMainWindow):
     def on_whois_finished(self):
         self.progress_bar.setVisible(False)
         self.search_button.setEnabled(True)
-        self.parse_button.setEnabled(self.manual_session.is_active())
+        self.parse_button.setEnabled(False)
         self.resume_button.setEnabled(False)
 
     def on_error(self, error_message):
@@ -1155,7 +1157,8 @@ class GoogleSearchGUI(QMainWindow):
     def on_search_finished(self):
         """Завершение поиска"""
         self.search_button.setEnabled(True)
-        self.parse_button.setEnabled(self.manual_session.is_active())
+        # Новый запуск парсинга возможен только после нового клика "Начать поиск".
+        self.parse_button.setEnabled(False)
         self.resume_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.progress_bar.setVisible(False)
@@ -1198,7 +1201,14 @@ class GoogleSearchGUI(QMainWindow):
         if filename:
             try:
                 if filename.lower().endswith('.xlsx'):
-                    self.results_df.to_excel(filename, index=False)
+                    try:
+                        import openpyxl  # noqa: F401
+                    except ImportError:
+                        error_msg = "Для сохранения в Excel установите пакет openpyxl: pip install openpyxl"
+                        self.output_text.append(error_msg)
+                        QMessageBox.critical(self, "Ошибка", error_msg)
+                        return
+                    self.results_df.to_excel(filename, index=False, engine='openpyxl')
                 else:
                     self.results_df.to_csv(filename, index=False, encoding="utf-8-sig")
                 self.output_text.append(f"Результаты сохранены в: {filename}")
