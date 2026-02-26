@@ -18,6 +18,7 @@ import re
 import traceback
 from typing import Dict, Optional, List
 from urllib.parse import urlparse
+from function import ManualGoogleSession
 
 # Настройка пути к браузерам Playwright
 # Корректно работает как из исходников, так и из упакованного PyInstaller-exe
@@ -148,12 +149,13 @@ class GoogleSearchWorker(QThread):
     results_ready = pyqtSignal(object)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, query, max_pages, collect_contacts, results_per_page):
+    def __init__(self, query, max_pages, collect_contacts, results_per_page, storage_state_path=None):
         super().__init__()
         self.query = query
         self.max_pages = max_pages
         self.collect_contacts = collect_contacts
         self.results_per_page = results_per_page
+        self.storage_state_path = storage_state_path
         self.is_running = True
 
     def stop(self):
@@ -249,7 +251,7 @@ class GoogleSearchWorker(QThread):
                         '--disable-features=VizDisplayCompositor'
                     ]
                 )
-                context = browser.new_context(
+                context_kwargs = dict(
                     locale='ru-RU',
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     viewport={'width': 1920, 'height': 1080},
@@ -259,8 +261,12 @@ class GoogleSearchWorker(QThread):
                         'Accept-Encoding': 'gzip, deflate',
                         'Connection': 'keep-alive',
                         'Upgrade-Insecure-Requests': '1'
-                    }
+                    },
                 )
+                if self.storage_state_path and os.path.exists(self.storage_state_path):
+                    context_kwargs['storage_state'] = self.storage_state_path
+                    self.emit_progress("Загружена пользовательская сессия браузера")
+                context = browser.new_context(**context_kwargs)
                 # Улучшенное скрытие автоматизации
                 context.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', {
@@ -288,9 +294,11 @@ class GoogleSearchWorker(QThread):
                         # Используем более ранний триггер domcontentloaded, чтобы избежать таймаута networkidle
                         page.goto(url, wait_until='domcontentloaded', timeout=30000)
                         if 'captcha' in page.url.lower() or page.locator('text=Я не робот').count() > 0:
-                            self.emit_progress(f"Обнаружена капча на странице {page_num + 1}, пропускаем...")
-                            time.sleep(random.uniform(15, 25))
-                            continue
+                            self.emit_progress(
+                                f"Обнаружена капча на странице {page_num + 1}. "
+                                f"Откройте страницу кнопкой 'Начать поиск', решите капчу и повторите парсинг."
+                            )
+                            break
                         time.sleep(random.uniform(3, 7))
 
                         html = page.content()
@@ -542,6 +550,8 @@ class GoogleSearchGUI(QMainWindow):
         self.whois_worker = None
         self.whois_checkbox = None
         self.report_button = None  # Кнопка для генерации отчета
+        self.parse_button = None
+        self.manual_session = ManualGoogleSession(base_dir)
         self.init_ui()
 
     def init_ui(self):
@@ -612,8 +622,13 @@ class GoogleSearchGUI(QMainWindow):
         # Кнопки управления
         buttons_layout = QHBoxLayout()
         self.search_button = QPushButton("Начать поиск")
-        self.search_button.clicked.connect(self.start_search)
+        self.search_button.clicked.connect(self.start_manual_search)
         buttons_layout.addWidget(self.search_button)
+
+        self.parse_button = QPushButton("Начать парсинг")
+        self.parse_button.clicked.connect(self.start_search)
+        self.parse_button.setEnabled(False)
+        buttons_layout.addWidget(self.parse_button)
 
         self.stop_button = QPushButton("Остановить")
         self.stop_button.clicked.connect(self.stop_search)
@@ -677,11 +692,36 @@ class GoogleSearchGUI(QMainWindow):
         """Открывает ссылку для обратной связи в Telegram"""
         QDesktopServices.openUrl(QUrl("https://t.me/Userspoi"))
 
+    def start_manual_search(self):
+        """Открывает видимый браузер для ручной капчи и подготовки сессии."""
+        query = self.query_input.text().strip()
+        if not query:
+            QMessageBox.warning(self, "Ошибка", "Введите поисковый запрос!")
+            return
+
+        try:
+            self.manual_session.start_search(query)
+            self.parse_button.setEnabled(True)
+            self.output_text.append("Открыт браузер с поисковым запросом.")
+            self.output_text.append("Если есть капча - решите ее в браузере.")
+            self.output_text.append("После появления результатов нажмите 'Начать парсинг'.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть браузер: {e}")
+
     def start_search(self):
         """Запуск поиска"""
         query = self.query_input.text().strip()
         if not query:
             QMessageBox.warning(self, "Ошибка", "Введите поисковый запрос!")
+            return
+        if not self.manual_session.is_active():
+            QMessageBox.warning(self, "Поиск", "Сначала нажмите 'Начать поиск' и решите капчу в браузере.")
+            return
+
+        try:
+            storage_state_path = self.manual_session.export_storage_state()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось получить сессию браузера: {e}")
             return
 
         max_pages = self.pages_spinbox.value()
@@ -705,6 +745,7 @@ class GoogleSearchGUI(QMainWindow):
 
         # Настройка UI для поиска
         self.search_button.setEnabled(False)
+        self.parse_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.save_button.setEnabled(False)
         self.report_button.setEnabled(False)  # Отключаем кнопку отчета
@@ -712,7 +753,7 @@ class GoogleSearchGUI(QMainWindow):
         self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
 
         # Создание и запуск worker'а
-        self.worker = GoogleSearchWorker(query, max_pages, collect_contacts, results_per_page)
+        self.worker = GoogleSearchWorker(query, max_pages, collect_contacts, results_per_page, storage_state_path)
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.results_ready.connect(self.on_results_ready)
         self.worker.error_occurred.connect(self.on_error)
@@ -786,6 +827,7 @@ class GoogleSearchGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         self.search_button.setEnabled(False)
+        self.parse_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.save_button.setEnabled(False)
         self.report_button.setEnabled(False)  # Отключаем на время WHOIS
@@ -808,6 +850,7 @@ class GoogleSearchGUI(QMainWindow):
     def on_whois_finished(self):
         self.progress_bar.setVisible(False)
         self.search_button.setEnabled(True)
+        self.parse_button.setEnabled(self.manual_session.is_active())
 
     def on_error(self, error_message):
         """Обработка ошибок"""
@@ -817,9 +860,17 @@ class GoogleSearchGUI(QMainWindow):
     def on_search_finished(self):
         """Завершение поиска"""
         self.search_button.setEnabled(True)
+        self.parse_button.setEnabled(self.manual_session.is_active())
         self.stop_button.setEnabled(False)
         self.progress_bar.setVisible(False)
         # Если WHOIS уже запущен — UI останется в неопределённом прогрессе, не меняем
+
+    def closeEvent(self, event):
+        """Гарантированно закрывает ручную сессию браузера."""
+        try:
+            self.manual_session.stop()
+        finally:
+            super().closeEvent(event)
 
     def save_results(self):
         """Сохранение результатов"""
