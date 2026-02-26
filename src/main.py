@@ -631,7 +631,7 @@ class GoogleSearchGUI(QMainWindow):
         search_layout.addWidget(self.results_per_page_spinbox, 3, 1)
 
         # Сбор контактов
-        self.collect_contacts_checkbox = QCheckBox("Собирать email контакты")
+        self.collect_contacts_checkbox = QCheckBox("Собирать контакты (соцсети, почты и телефоны)")
         search_layout.addWidget(self.collect_contacts_checkbox, 4, 0)
 
         # Предлагать WHOIS проверку
@@ -878,10 +878,59 @@ class GoogleSearchGUI(QMainWindow):
         return not self.stop_requested
 
     def extract_contacts_local(self, page_content):
-        contacts = {'emails': []}
+        contacts = {'emails': [], 'phones': [], 'social_links': []}
+
         email_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b'
         full_emails = [m.group(0) for m in re.finditer(email_pattern, page_content, re.IGNORECASE)]
-        contacts['emails'] = list(set(full_emails))
+        contacts['emails'] = sorted(set(full_emails))
+
+        phone_candidates = []
+        for m in re.finditer(r'(?:\+?\d[\d\-\(\)\s]{8,}\d)', page_content):
+            phone_candidates.append(m.group(0))
+
+        normalized_phones = []
+        for raw in phone_candidates:
+            phone = re.sub(r'[^0-9+]', '', raw)
+            if phone.startswith('8') and len(phone) == 11:
+                phone = '+7' + phone[1:]
+            digits_count = len(re.sub(r'\D', '', phone))
+            if 10 <= digits_count <= 15:
+                normalized_phones.append(phone)
+        contacts['phones'] = sorted(set(normalized_phones))
+
+        soup = BeautifulSoup(page_content, 'html.parser')
+        social_domains = (
+            'vk.com', 't.me', 'telegram.me', 'wa.me', 'whatsapp.com',
+            'instagram.com', 'facebook.com', 'fb.com', 'ok.ru',
+            'odnoklassniki.ru', 'youtube.com', 'youtu.be', 'rutube.ru',
+            'dzen.ru', 'tiktok.com', 'x.com', 'twitter.com',
+            'linkedin.com', 'pinterest.com'
+        )
+        social_links = []
+        for a in soup.select('a[href]'):
+            href = (a.get('href') or '').strip()
+            low = href.lower()
+            messenger_attr = (a.get('data-messenger') or '').lower()
+            if not href:
+                continue
+            if low.startswith('tel:'):
+                tel = re.sub(r'[^0-9+]', '', href[4:])
+                if tel:
+                    normalized_phones.append(tel)
+                continue
+            if low.startswith('mailto:'):
+                mail = href[7:].split('?')[0].strip()
+                if mail:
+                    contacts['emails'].append(mail)
+                continue
+            if any(d in low for d in social_domains):
+                social_links.append(href)
+            elif messenger_attr or any(k in low for k in ('whatsapp', 'telegram', 'viber')):
+                social_links.append(href)
+
+        contacts['emails'] = sorted(set(contacts['emails']))
+        contacts['phones'] = sorted(set(normalized_phones))
+        contacts['social_links'] = sorted(set(social_links))
         return contacts
 
     def fetch_page_contacts_local(self, url, page):
@@ -900,29 +949,29 @@ class GoogleSearchGUI(QMainWindow):
                 pass
 
             full_content = page.content()
-            additional_content = ""
-            selectors = [
-                'footer', 'header', '[class*=\"contact\"]', '[class*=\"footer\"]',
-                '[class*=\"header\"]', '[id*=\"contact\"]', '[id*=\"footer\"]',
-                '[id*=\"header\"]', '.contacts', '.contact-info', '.contact-us'
-            ]
-            for selector in selectors:
-                try:
-                    elements = page.locator(selector).all()
-                    for element in elements:
-                        try:
-                            text = element.inner_html()
-                            if text:
-                                additional_content += text + " "
-                        except Exception:
-                            continue
-                except Exception:
-                    continue
-            combined_content = full_content + " " + additional_content
-            return self.extract_contacts_local(combined_content)
+            soup = BeautifulSoup(full_content, 'html.parser')
+
+            footer_nodes = soup.select(
+                'footer, [class*=\"footer\"], [id*=\"footer\"], '
+                '[class*=\"contact\"], [id*=\"contact\"], '
+                '[class*=\"social\"], [id*=\"social\"], '
+                '[class*=\"messenger\"], [id*=\"messenger\"]'
+            )
+            footer_content = " ".join(str(node) for node in footer_nodes)
+
+            footer_contacts = self.extract_contacts_local(footer_content)
+            full_contacts = self.extract_contacts_local(full_content)
+
+            # Приоритет footer, но если чего-то нет — добираем из полного HTML.
+            merged = {
+                'emails': sorted(set(footer_contacts['emails']) | set(full_contacts['emails'])),
+                'phones': sorted(set(footer_contacts['phones']) | set(full_contacts['phones'])),
+                'social_links': sorted(set(footer_contacts['social_links']) | set(full_contacts['social_links'])),
+            }
+            return merged
         except Exception as e:
             self.update_progress(f"Ошибка при обработке {url}: {e}")
-            return {'emails': []}
+            return {'emails': [], 'phones': [], 'social_links': []}
 
     def run_search_in_manual_browser(self, query, page_from, page_to, parse_all_pages, collect_contacts, results_per_page):
         all_results = []
@@ -1032,6 +1081,8 @@ class GoogleSearchGUI(QMainWindow):
                                 self.update_progress(f"Собираем контакты с: {url_link}")
                                 contacts = self.fetch_page_contacts_local(url_link, contacts_page)
                                 result_data['emails'] = ', '.join(contacts.get('emails', []))
+                                result_data['phones'] = ', '.join(contacts.get('phones', []))
+                                result_data['social_links'] = ', '.join(contacts.get('social_links', []))
                             page_results.append(result_data)
                     except Exception as e:
                         self.update_progress(f"Ошибка при обработке блока {i}: {e}")
@@ -1081,14 +1132,26 @@ class GoogleSearchGUI(QMainWindow):
             self.output_text.append(f"\nПоиск завершен! Найдено {len(df)} уникальных результатов")
             if self.collect_contacts_checkbox.isChecked():
                 total_emails = sum(1 for _, row in df.iterrows() if row.get('emails'))
+                total_phones = sum(1 for _, row in df.iterrows() if row.get('phones'))
+                total_social = sum(1 for _, row in df.iterrows() if row.get('social_links'))
                 self.output_text.append(f"Найдено сайтов с email: {total_emails}")
+                self.output_text.append(f"Найдено сайтов с телефонами: {total_phones}")
+                self.output_text.append(f"Найдено сайтов с соцсетями: {total_social}")
                 # Показываем примеры найденных контактов
-                if total_emails > 0:
-                    self.output_text.append("\nПримеры найденных email:")
+                if total_emails > 0 or total_phones > 0 or total_social > 0:
                     count = 0
                     for _, row in df.iterrows():
-                        if row.get('emails') and count < 3:
-                            self.output_text.append(f"  {row['url']}: {row['emails'][:100]}...")
+                        if count >= 3:
+                            break
+                        if row.get('emails') or row.get('phones') or row.get('social_links'):
+                            sample = []
+                            if row.get('emails'):
+                                sample.append(f"email: {str(row['emails'])[:80]}")
+                            if row.get('phones'):
+                                sample.append(f"тел: {str(row['phones'])[:80]}")
+                            if row.get('social_links'):
+                                sample.append(f"соцсети: {str(row['social_links'])[:80]}")
+                            self.output_text.append(f"  {row['url']} | " + " | ".join(sample))
                             count += 1
             self.save_button.setEnabled(True)
             self.report_button.setEnabled(True)  # Активируем кнопку отчета
